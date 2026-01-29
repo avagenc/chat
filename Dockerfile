@@ -2,7 +2,9 @@ FROM kong:3.4
 
 USER root
 
-COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml
+RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lists/*
+
+COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml.template
 COPY policies/enforcer.lua /usr/local/kong/policies/enforcer.lua
 
 ENV KONG_DATABASE="off" \
@@ -16,6 +18,11 @@ ENV KONG_DATABASE="off" \
     KONG_PROXY_ERROR_LOG="/dev/stderr" \
     KONG_ADMIN_ERROR_LOG="/dev/stderr"
 
-EXPOSE 800
+COPY --chmod=755 scripts/docker-entrypoint.sh /docker-entrypoint.sh
+
+EXPOSE 8000
 
 USER kong
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["kong", "docker-start"]

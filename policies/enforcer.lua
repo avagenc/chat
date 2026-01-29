@@ -1,22 +1,8 @@
-local redis = require("resty.redis")
-
-return function(conf)
-	local red = redis:new()
-
-	local timeout = tonumber(os.getenv("REDIS_TIMEOUT")) or 2000
-	red:set_timeout(timeout)
-
-	local redis_host = os.getenv("REDIS_HOST")
-	local redis_port = os.getenv("REDIS_PORT")
-	local redis_password = os.getenv("REDIS_PASSWORD")
-	local redis_user = os.getenv("REDIS_USER")
-
-	local pool_size = tonumber(os.getenv("REDIS_POOL_SIZE")) or 500
 local redis = require "resty.redis"
 
 return function(conf)
     local red = redis:new()
-    
+
     local timeout = tonumber(os.getenv("REDIS_TIMEOUT")) or 2000
     red:set_timeout(timeout)
 
@@ -29,7 +15,7 @@ return function(conf)
     local pool_idle = tonumber(os.getenv("REDIS_POOL_IDLE_TIMEOUT")) or 10000
 
     local ok, err = red:connect(redis_host, redis_port, { ssl = true, ssl_verify = true })
-    
+
     if not ok then
         kong.log.err(err)
         return kong.response.exit(500, { error = "System Integrity Check Failed" })
@@ -37,7 +23,7 @@ return function(conf)
 
     if redis_password then
         local res, auth_err
-        
+
         if redis_user and redis_user ~= "" then
             res, auth_err = red:auth(redis_user, redis_password)
         else
@@ -66,7 +52,7 @@ return function(conf)
 
     if is_blocked == 1 then
         red:set_keepalive(pool_idle, pool_size)
-        return kong.response.exit(402, { 
+        return kong.response.exit(402, {
             error = "Policy Violation",
             message = "Account suspended due to outstanding payment.",
             code = "PAYMENT_REQUIRED"

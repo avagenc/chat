@@ -58,4 +58,4 @@ consumers:
     jwt_secrets:
       - key: ${SUPABASE_KID}
         algorithm: ES256
-        rsa_public_key: ${SUPABASE_PUBLIC_KEY}
+        public_key: ${SUPABASE_PUBLIC_KEY}

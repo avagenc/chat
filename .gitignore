@@ -3,3 +3,4 @@
 !env.example
 AGENTS.md
 scripts/
+!scripts/docker-entrypoint.sh
