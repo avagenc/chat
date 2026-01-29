@@ -1,0 +1,65 @@
+_format_version: "3.0"
+
+services:
+  - name: nayo-mock-service
+    url: http://localhost
+    routes:
+      - name: nayo-route
+        paths:
+          - /nayo
+        strip_path: true
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          cookie_names:
+            - sb-access-token
+      - name: pre-function
+        config:
+          access:
+            - "require('enforcer')()"
+      - name: request-termination
+        config:
+          status_code: 200
+          content_type: "application/json"
+          body: '{"message": "successfully hit nayo!", "service": "nayo"}'
+
+  - name: tuya-mock-service
+    url: http://localhost
+    routes:
+      - name: tuya-route
+        paths:
+          - /tuya
+        strip_path: true
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          cookie_names:
+            - sb-access-token
+      - name: pre-function
+        config:
+          access:
+            - "require('enforcer')()"
+      - name: request-termination
+        config:
+          status_code: 200
+          content_type: "application/json"
+          body: '{"message": "successfully hit tuya!", "service": "tuya"}'
+
+consumers:
+  - username: supabase-auth-consumer
+    jwt_secrets:
+      - key: 3C67C9EE-96DA-46A5-AC1E-A9D71383E3FC
+        algorithm: ES256
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqcTNGX8UpeXPPAT8qLYTBROzfQAL
+          SM9nphYegd9RSSZ0Tb3Ppxuw6sPYHf87g3vorvIpW5GbbRnPc12gs69DBw==
+          -----END PUBLIC KEY-----
