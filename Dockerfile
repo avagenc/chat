@@ -20,3 +20,5 @@ ENV KONG_DATABASE="off" \
 EXPOSE 8000
 
 USER kong
+
+CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=$(echo $SUPABASE_PUBLIC_KEY | base64 -d) && kong docker-start"]
