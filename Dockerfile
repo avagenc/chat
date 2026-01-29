@@ -18,11 +18,8 @@ ENV KONG_DATABASE="off" \
     KONG_PROXY_ERROR_LOG="/dev/stderr" \
     KONG_ADMIN_ERROR_LOG="/dev/stderr"
 
-COPY --chmod=755 scripts/docker-entrypoint.sh /docker-entrypoint.sh
-
 EXPOSE 8000
 
 USER kong
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["kong", "docker-start"]
+CMD ["sh", "-c", "envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && kong docker-start"]
