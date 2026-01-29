@@ -56,6 +56,6 @@ services:
 consumers:
   - username: supabase-auth-consumer
     jwt_secrets:
-      - key: "{vault://env/SUPABASE_KID}"
+      - key: "${SUPABASE_KID}"
         algorithm: ES256
-        public_key: "{vault://env/SUPABASE_PUBLIC_KEY}"
+        public_key: "${SUPABASE_PUBLIC_KEY}"

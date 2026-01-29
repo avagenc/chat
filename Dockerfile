@@ -2,7 +2,9 @@ FROM kong:3.4
 
 USER root
 
-COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml
+RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lists/*
+
+COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml.template
 COPY policies/enforcer.lua /usr/local/kong/policies/enforcer.lua
 
 ENV KONG_DATABASE="off" \
@@ -14,11 +16,10 @@ ENV KONG_DATABASE="off" \
     KONG_PROXY_ACCESS_LOG="/dev/stdout" \
     KONG_ADMIN_ACCESS_LOG="/dev/stdout" \
     KONG_PROXY_ERROR_LOG="/dev/stderr" \
-    KONG_ADMIN_ERROR_LOG="/dev/stderr" \
-    KONG_VAULTS="bundled"
+    KONG_ADMIN_ERROR_LOG="/dev/stderr"
 
 EXPOSE 8000
 
 USER kong
 
-CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d)\" && exec kong docker-start"]
+CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d)\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && exec kong docker-start"]
