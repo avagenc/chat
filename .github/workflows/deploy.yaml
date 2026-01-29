@@ -58,7 +58,7 @@ jobs:
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             REDIS_POOL_SIZE=${{ vars.REDIS_POOL_SIZE }}
             SUPABASE_KID=${{ vars.SUPABASE_KID }}
-            SUPABASE_PUBLIC_KEY="${{ secrets.SUPABASE_PUBLIC_KEY }}"
+            SUPABASE_PUBLIC_KEY=${{ secrets.SUPABASE_PUBLIC_KEY }}
 
           secrets: |
             REDIS_HOST=GATEWAY_REDIS_HOST:latest
