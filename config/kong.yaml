@@ -56,10 +56,6 @@ services:
 consumers:
   - username: supabase-auth-consumer
     jwt_secrets:
-      - key: 3C67C9EE-96DA-46A5-AC1E-A9D71383E3FC
+      - key: ${SUPABASE_KID}
         algorithm: ES256
-        rsa_public_key: |
-          -----BEGIN PUBLIC KEY-----
-          MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqcTNGX8UpeXPPAT8qLYTBROzfQAL
-          SM9nphYegd9RSSZ0Tb3Ppxuw6sPYHf87g3vorvIpW5GbbRnPc12gs69DBw==
-          -----END PUBLIC KEY-----
+        rsa_public_key: ${SUPABASE_PUBLIC_KEY}
