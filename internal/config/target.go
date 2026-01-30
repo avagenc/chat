@@ -7,7 +7,7 @@ import (
 )
 
 type Target struct {
-	Nayo string `env:"AVAGENC_NAYO_SERVICE_URL" env-required:"true"`
+	Nayo string `env:"AVAGENC_NAYO_API_URL" env-required:"true"`
 }
 
 func LoadTarget() (*Target, error) {

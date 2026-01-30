@@ -46,7 +46,7 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           region: ${{ env.REGION }}
-          flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost --port 8080"
+          flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost"
 
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
