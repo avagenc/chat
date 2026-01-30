@@ -2,4 +2,4 @@
 .env*
 !env.example
 AGENTS.md
-scripts/
+

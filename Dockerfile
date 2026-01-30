@@ -24,4 +24,7 @@ EXPOSE 8000
 
 USER kong
 
-CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d | sed 's/^/          /' | sed '1s/^          //')\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && envsubst < /usr/local/kong/policies/enforcer.lua.template > /usr/local/kong/policies/enforcer.lua && exec /docker-entrypoint.sh kong docker-start"]
+COPY scripts/start-gateway.sh /usr/local/bin/start-gateway.sh
+RUN chmod +x /usr/local/bin/start-gateway.sh
+
+CMD ["/usr/local/bin/start-gateway.sh"]
