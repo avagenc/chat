@@ -57,7 +57,7 @@ jobs:
             REDIS_USER=${{ vars.REDIS_USER }}
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             REDIS_POOL_SIZE=${{ vars.REDIS_POOL_SIZE }}
-            SUPABASE_KID=${{ vars.SUPABASE_KID }}
+            SUPABASE_ISS=${{ vars.SUPABASE_ISS }}
             SUPABASE_PUBLIC_KEY=${{ secrets.SUPABASE_PUBLIC_KEY }}
 
           secrets: |

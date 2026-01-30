@@ -36,7 +36,12 @@ return function(conf)
         end
     end
 
-    local claims = kong.ctx.shared.jwt_claims
+    local jwt_token = kong.ctx.shared.authenticated_jwt_token
+    if not jwt_token then
+        return kong.response.exit(401, { message = "Unauthorized Identity" })
+    end
+
+    local claims = jwt_token.claims
     if not claims or not claims.sub then
         return kong.response.exit(401, { message = "Unauthorized Identity" })
     end
