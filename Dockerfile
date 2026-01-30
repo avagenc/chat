@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lis
 
 COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml.template
 COPY policies/enforcer.lua.template /usr/local/kong/policies/enforcer.lua.template
+COPY scripts/start-gateway.sh /usr/local/bin/start-gateway.sh
+
+RUN chmod +x /usr/local/bin/start-gateway.sh
 
 RUN chown -R kong:kong /usr/local/kong/declarative /usr/local/kong/policies
 
@@ -23,8 +26,5 @@ ENV KONG_DATABASE="off" \
 EXPOSE 8000
 
 USER kong
-
-COPY scripts/start-gateway.sh /usr/local/bin/start-gateway.sh
-RUN chmod +x /usr/local/bin/start-gateway.sh
 
 CMD ["/usr/local/bin/start-gateway.sh"]
