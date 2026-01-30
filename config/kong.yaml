@@ -18,6 +18,10 @@ services:
           cookie_names:
             - sb-access-token
       - name: pre-function
+        ordering:
+          after:
+            access:
+              - jwt
         config:
           access:
             - "require('enforcer')()"
@@ -44,6 +48,10 @@ services:
           cookie_names:
             - sb-access-token
       - name: pre-function
+        ordering:
+          after:
+            access:
+              - jwt
         config:
           access:
             - "require('enforcer')()"
