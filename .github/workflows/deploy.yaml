@@ -4,23 +4,21 @@ on:
   push:
     branches: ["main", "dev"]
     paths:
-      - "config/**"
-      - "policies/**"
-      - "Dockerfile"
-      - ".github/workflows/**"
+      - "**"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
-
     env:
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
       SERVICE_NAME: gateway
       IMAGE_NAME: gateway
+
+    environment: ${{ env.TARGET_ENV }}
 
     steps:
       - name: Checkout Code
@@ -50,16 +48,13 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           region: ${{ env.REGION }}
-          flags: "--allow-unauthenticated --memory=1Gi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost --port 8000"
+          flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost --port 8080"
 
           env_vars: |
-            APP_ENV=${{ vars.APP_ENV }}
-            REDIS_USER=${{ vars.REDIS_USER }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            REDIS_POOL_SIZE=${{ vars.REDIS_POOL_SIZE }}
-            SUPABASE_ISS=${{ vars.SUPABASE_ISS }}
-            SUPABASE_PUBLIC_KEY=${{ secrets.SUPABASE_PUBLIC_KEY }}
+            APP_ENV=${{ env.TARGET_ENV }}
+            AVAGENC_IDENTITY_SUPABASE_JWKS_URL=${{ vars.AVAGENC_IDENTITY_SUPABASE_JWKS_URL }}
+            AVAGENC_NAYO_SERVICE_URL=${{ vars.AVAGENC_NAYO_SERVICE_URL }}
 
           secrets: |
-            REDIS_HOST=GATEWAY_REDIS_HOST:latest
-            REDIS_PORT=GATEWAY_REDIS_PORT:latest
+            REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
+            AVAGENC_API_KEY=AVAGENC_API_KEY:latest

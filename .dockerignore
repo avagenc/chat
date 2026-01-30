@@ -1,0 +1,11 @@
+.git
+.gitignore
+.github
+.env
+.env.example
+Dockerfile
+.dockerignore
+bin
+tmp
+out
+*.log
