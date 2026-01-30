@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lis
 COPY config/kong.yaml /usr/local/kong/declarative/kong.yaml.template
 COPY policies/enforcer.lua /usr/local/kong/policies/enforcer.lua
 
+RUN chown -R kong:kong /usr/local/kong/declarative
+
 ENV KONG_DATABASE="off" \
     KONG_DECLARATIVE_CONFIG="/usr/local/kong/declarative/kong.yaml" \
     KONG_LUA_PACKAGE_PATH="/usr/local/kong/policies/?.lua;;" \
@@ -22,4 +24,4 @@ EXPOSE 8000
 
 USER kong
 
-CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d | awk -v ORS='\\\\n' '1')\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && exec kong docker-start"]
+CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d | sed 's/^/          /' | sed '1s/^          //')\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && exec /docker-entrypoint.sh kong docker-start"]
