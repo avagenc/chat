@@ -22,4 +22,4 @@ EXPOSE 8000
 
 USER kong
 
-CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d)\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && exec kong docker-start"]
+CMD ["sh", "-c", "export SUPABASE_PUBLIC_KEY=\"$(echo \"$SUPABASE_PUBLIC_KEY\" | base64 -d | awk -v ORS='\\\\n' '1')\" && envsubst < /usr/local/kong/declarative/kong.yaml.template > /usr/local/kong/declarative/kong.yaml && exec kong docker-start"]
