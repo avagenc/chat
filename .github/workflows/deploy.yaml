@@ -8,15 +8,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
     env:
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
       SERVICE_NAME: gateway
       IMAGE_NAME: gateway
-
-    environment: ${{ env.TARGET_ENV }}
+      APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
       - name: Checkout Code
@@ -49,9 +49,9 @@ jobs:
           flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost --port 8080"
 
           env_vars: |
-            APP_ENV=${{ env.TARGET_ENV }}
+            APP_ENV=${{ env.APP_ENV }}
+            AVAGENC_NAYO_API_URL=${{ vars.AVAGENC_NAYO_API_URL }}
             AVAGENC_IDENTITY_SUPABASE_JWKS_URL=${{ vars.AVAGENC_IDENTITY_SUPABASE_JWKS_URL }}
-            AVAGENC_NAYO_SERVICE_URL=${{ vars.AVAGENC_NAYO_SERVICE_URL }}
 
           secrets: |
             REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
