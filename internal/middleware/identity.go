@@ -1,30 +1,31 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/MicahParks/keyfunc/v3"
-	"github.com/avagenc/gateway/pkg/api"
+	"github.com/avagenc/api-gateway/pkg/api"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type UserIdentity struct {
+type Identity struct {
 	jwks keyfunc.Keyfunc
 }
 
-func NewUserIdentity(jwksURL string) (*UserIdentity, error) {
+func NewIdentity(jwksURL string) (*Identity, error) {
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWKS from URL: %w", err)
 	}
 
-	return &UserIdentity{jwks: jwks}, nil
+	return &Identity{jwks: jwks}, nil
 }
 
-func (m *UserIdentity) RequireUserID(next http.Handler) http.Handler {
+func (m *Identity) RequireIdentity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -32,26 +33,30 @@ func (m *UserIdentity) RequireUserID(next http.Handler) http.Handler {
 			return
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == authHeader {
 			api.Respond(w, http.StatusUnauthorized, api.NewErrorResponse("UNAUTHORIZED", "Invalid Token Format", nil))
 			return
 		}
 
-		token, err := jwt.Parse(tokenString, m.jwks.Keyfunc)
-
+		parsedToken, err := jwt.Parse(token, m.jwks.Keyfunc)
 		if err != nil {
 			log.Printf("JWT Parse Error: %v", err)
+
+			if errors.Is(err, jwt.ErrTokenExpired) {
+				api.Respond(w, http.StatusUnauthorized, api.NewErrorResponse("TOKEN_EXPIRED", "Token has expired", nil))
+				return
+			}
 			api.Respond(w, http.StatusUnauthorized, api.NewErrorResponse("UNAUTHORIZED", "Invalid Token", nil))
 			return
 		}
 
-		if !token.Valid {
+		if !parsedToken.Valid {
 			api.Respond(w, http.StatusUnauthorized, api.NewErrorResponse("UNAUTHORIZED", "Token is not valid", nil))
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
+		claims, ok := parsedToken.Claims.(jwt.MapClaims)
 		if !ok {
 			api.Respond(w, http.StatusUnauthorized, api.NewErrorResponse("UNAUTHORIZED", "Invalid Claims", nil))
 			return

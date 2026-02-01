@@ -1,4 +1,4 @@
-module github.com/avagenc/gateway
+module github.com/avagenc/api-gateway
 
 go 1.25.0
 

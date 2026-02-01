@@ -6,7 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/avagenc/gateway/pkg/api"
+	"github.com/avagenc/api-gateway/pkg/api"
 )
 
 type Service interface {
@@ -43,7 +43,6 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		api.Respond(w, http.StatusInternalServerError, api.NewErrorResponse("INTERNAL_ERROR", "System Integrity Check Failed", nil))
 		return
 	}
-
 	if blocked {
 		api.Respond(w, http.StatusPaymentRequired, api.NewErrorResponse("PAYMENT_REQUIRED", "Account suspended due to outstanding payment.", nil))
 		return

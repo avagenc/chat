@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/avagenc/gateway/internal/config"
-	"github.com/avagenc/gateway/internal/gateway"
-	"github.com/avagenc/gateway/internal/middleware"
-	"github.com/avagenc/gateway/internal/redis"
+	"github.com/avagenc/api-gateway/internal/config"
+	"github.com/avagenc/api-gateway/internal/gateway"
+	"github.com/avagenc/api-gateway/internal/middleware"
+	"github.com/avagenc/api-gateway/internal/redis"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -75,10 +75,10 @@ func main() {
 
 	// 4. Initialize Middleware
 	mw := struct {
-		UserIdentity *middleware.UserIdentity
+		Identity *middleware.Identity
 	}{}
 
-	mw.UserIdentity, err = middleware.NewUserIdentity(cfg.security.IdentitySupabaseJWKSURL)
+	mw.Identity, err = middleware.NewIdentity(cfg.security.IdentitySupabaseJWKSURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize JWT middleware: %v", err)
 	}
@@ -102,7 +102,7 @@ func main() {
 	r.Use(chiMiddleware.Recoverer)
 
 	r.Group(func(r chi.Router) {
-		r.Use(mw.UserIdentity.RequireUserID)
+		r.Use(mw.Identity.RequireIdentity)
 
 		r.Mount("/nayo", http.StripPrefix("/nayo", http.HandlerFunc(hdl.Nayo.Proxy)))
 	})

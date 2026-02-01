@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/avagenc/gateway/internal/config"
+	"github.com/avagenc/api-gateway/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 
