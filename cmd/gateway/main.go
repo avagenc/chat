@@ -84,8 +84,7 @@ func main() {
 		log.Fatalf("Failed to initialize JWT middleware: %v", err)
 	}
 
-	repo := gateway.NewRepository(redis)
-	mw.Blocklist = middleware.NewBlocklist(repo)
+	mw.Blocklist = middleware.NewBlocklist(redis)
 
 	hdl := struct {
 		Nayo *gateway.Handler
