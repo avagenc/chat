@@ -12,20 +12,20 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type Identity struct {
+type JWT struct {
 	jwks keyfunc.Keyfunc
 }
 
-func NewIdentity(jwksURL string) (*Identity, error) {
+func NewJWT(jwksURL string) (*JWT, error) {
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWKS from URL: %w", err)
 	}
 
-	return &Identity{jwks: jwks}, nil
+	return &JWT{jwks: jwks}, nil
 }
 
-func (m *Identity) RequireIdentity(next http.Handler) http.Handler {
+func (j *JWT) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -39,7 +39,7 @@ func (m *Identity) RequireIdentity(next http.Handler) http.Handler {
 			return
 		}
 
-		parsedToken, err := jwt.Parse(token, m.jwks.Keyfunc)
+		parsedToken, err := jwt.Parse(token, j.jwks.Keyfunc)
 		if err != nil {
 			log.Printf("JWT Parse Error: %v", err)
 

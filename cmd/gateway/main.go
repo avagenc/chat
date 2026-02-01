@@ -75,22 +75,22 @@ func main() {
 
 	// 4. Initialize Middleware
 	mw := struct {
-		Identity *middleware.Identity
+		JWT       *middleware.JWT
+		Blocklist *middleware.Blocklist
 	}{}
 
-	mw.Identity, err = middleware.NewIdentity(cfg.security.IdentitySupabaseJWKSURL)
+	mw.JWT, err = middleware.NewJWT(cfg.security.IdentitySupabaseJWKSURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize JWT middleware: %v", err)
 	}
 
-	// 5. Initialize Gateway Components
 	repo := gateway.NewRepository(redis)
-	svc := gateway.NewService(repo)
+	mw.Blocklist = middleware.NewBlocklist(repo)
 
 	hdl := struct {
 		Nayo *gateway.Handler
 	}{
-		Nayo: gateway.NewHandler(svc, target.Nayo, cfg.security.APIKey),
+		Nayo: gateway.NewHandler(target.Nayo, cfg.security.APIKey),
 	}
 
 	// 6. Router Setup
@@ -102,7 +102,8 @@ func main() {
 	r.Use(chiMiddleware.Recoverer)
 
 	r.Group(func(r chi.Router) {
-		r.Use(mw.Identity.RequireIdentity)
+		r.Use(mw.JWT.Authenticate)
+		r.Use(mw.Blocklist.DenyBlocked)
 
 		r.Mount("/nayo", http.StripPrefix("/nayo", http.HandlerFunc(hdl.Nayo.Proxy)))
 	})
