@@ -14,8 +14,8 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
-      SERVICE_NAME: gateway
-      IMAGE_NAME: gateway
+      SERVICE_NAME: api-gateway
+      IMAGE_NAME: api-gateway
       APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
@@ -50,9 +50,9 @@ jobs:
 
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
-            AVAGENC_NAYO_API_URL=${{ vars.AVAGENC_NAYO_API_URL }}
-            AVAGENC_IDENTITY_SUPABASE_JWKS_URL=${{ vars.AVAGENC_IDENTITY_SUPABASE_JWKS_URL }}
+            NAYU_API_URL=${{ vars.NAYU_API_URL }}
 
           secrets: |
             REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
-            AVAGENC_API_KEY=AVAGENC_API_KEY:latest
+            API_KEY=API_KEY:latest
+            IDENTITY_SUPABASE_JWKS_URL=IDENTITY_SUPABASE_JWKS_URL:latest

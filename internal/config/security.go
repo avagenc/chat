@@ -7,8 +7,8 @@ import (
 )
 
 type Security struct {
-	APIKey                  string `env:"AVAGENC_API_KEY" env-required:"true"`
-	IdentitySupabaseJWKSURL string `env:"AVAGENC_IDENTITY_SUPABASE_JWKS_URL" env-required:"true"`
+	APIKey                  string `env:"API_KEY" env-required:"true"`
+	IdentitySupabaseJWKSURL string `env:"IDENTITY_SUPABASE_JWKS_URL" env-required:"true"`
 }
 
 func LoadSecurity() (*Security, error) {

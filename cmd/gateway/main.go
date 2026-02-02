@@ -34,7 +34,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load app config: %v", err)
 	}
-
 	cfg.server, err = config.LoadServer()
 	if err != nil {
 		log.Fatalf("Failed to load server config: %v", err)
@@ -65,12 +64,12 @@ func main() {
 
 	// 3. Parse Target URLs
 	target := struct {
-		Nayo *url.URL
+		Nayu *url.URL
 	}{}
 
-	target.Nayo, err = url.Parse(cfg.target.Nayo)
+	target.Nayu, err = url.Parse(cfg.target.Nayu)
 	if err != nil {
-		log.Fatalf("Invalid Nayo Target URL detected: %v", err)
+		log.Fatalf("Invalid Nayu Target URL detected: %v", err)
 	}
 
 	// 4. Initialize Middleware
@@ -86,13 +85,14 @@ func main() {
 
 	mw.Blocklist = middleware.NewBlocklist(redis)
 
+	// 5. Initialize Handlers
 	hdl := struct {
-		Nayo *gateway.Handler
+		Nayu *gateway.Handler
 	}{
-		Nayo: gateway.NewHandler(target.Nayo, cfg.security.APIKey),
+		Nayu: gateway.NewHandler(target.Nayu, cfg.security.APIKey),
 	}
 
-	// 6. Router Setup
+	// 6. Setup Router
 	r := chi.NewRouter()
 
 	r.Use(chiMiddleware.RequestID)
@@ -104,7 +104,7 @@ func main() {
 		r.Use(mw.JWT.Authenticate)
 		r.Use(mw.Blocklist.DenyBlocked)
 
-		r.Mount("/nayo", http.StripPrefix("/nayo", http.HandlerFunc(hdl.Nayo.Proxy)))
+		r.Mount("/nayu", http.StripPrefix("/nayu", http.HandlerFunc(hdl.Nayu.Proxy)))
 	})
 
 	// 7. Start Server
@@ -117,7 +117,7 @@ func main() {
 	}
 
 	log.Printf("Starting %s (%s) on port %s", cfg.app.Name, cfg.app.Version, cfg.server.Port)
-	log.Printf("Forwarding /nayo -> %s", cfg.target.Nayo)
+	log.Printf("Forwarding /nayu -> %s", cfg.target.Nayu)
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Failed to start server: %v", err)
