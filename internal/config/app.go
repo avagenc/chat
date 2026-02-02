@@ -14,7 +14,7 @@ type App struct {
 
 func LoadApp() (*App, error) {
 	cfg := App{
-		Name:    "gateway",
+		Name:    "api-gateway",
 		Version: "v0.0.1",
 	}
 
