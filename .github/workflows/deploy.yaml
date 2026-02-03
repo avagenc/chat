@@ -1,0 +1,58 @@
+name: Deploy
+
+on:
+  push:
+    branches: ["main", "dev"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: asia-southeast1
+      REPO_NAME: docker
+      SERVICE_NAME: api-gateway
+      IMAGE_NAME: api-gateway
+      APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Image
+        env:
+          IMAGE_URL: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 -t $IMAGE_URL .
+          docker push $IMAGE_URL
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          region: ${{ env.REGION }}
+          flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost"
+
+          env_vars: |
+            APP_ENV=${{ env.APP_ENV }}
+            NAYU_API_URL=${{ vars.NAYU_API_URL }}
+
+          secrets: |
+            REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
+            API_KEY=API_KEY:latest
+            IDENTITY_SUPABASE_JWKS_URL=IDENTITY_SUPABASE_JWKS_URL:latest
