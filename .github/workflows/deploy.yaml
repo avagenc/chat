@@ -51,6 +51,7 @@ jobs:
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
             NAYU_API_URL=${{ vars.NAYU_API_URL }}
+            ZEE_API_URL=${{ vars.ZEE_API_URL }}
 
           secrets: |
             REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
