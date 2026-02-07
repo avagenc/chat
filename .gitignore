@@ -1,7 +1,2 @@
 .env
-.env*
-!env.example
 AGENTS.md
-
-
-! .env.example
