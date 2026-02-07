@@ -65,11 +65,17 @@ func main() {
 	// 3. Parse Target URLs
 	target := struct {
 		Nayu *url.URL
+		Zee  *url.URL
 	}{}
 
 	target.Nayu, err = url.Parse(cfg.target.Nayu)
 	if err != nil {
 		log.Fatalf("Invalid Nayu Target URL detected: %v", err)
+	}
+
+	target.Zee, err = url.Parse(cfg.target.Zee)
+	if err != nil {
+		log.Fatalf("Invalid Zee Target URL detected: %v", err)
 	}
 
 	// 4. Initialize Middleware
@@ -88,8 +94,10 @@ func main() {
 	// 5. Initialize Handlers
 	hdl := struct {
 		Nayu *gateway.Handler
+		Zee  *gateway.Handler
 	}{
 		Nayu: gateway.NewHandler(target.Nayu, cfg.security.APIKey),
+		Zee:  gateway.NewHandler(target.Zee, cfg.security.APIKey),
 	}
 
 	// 6. Setup Router
@@ -105,6 +113,7 @@ func main() {
 		r.Use(mw.Blocklist.DenyBlocked)
 
 		r.Mount("/nayu", http.StripPrefix("/nayu", http.HandlerFunc(hdl.Nayu.Proxy)))
+		r.Mount("/zee", http.StripPrefix("/zee", http.HandlerFunc(hdl.Zee.Proxy)))
 	})
 
 	// 7. Start Server

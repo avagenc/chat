@@ -8,6 +8,7 @@ import (
 
 type Target struct {
 	Nayu string `env:"NAYU_API_URL" env-required:"true"`
+	Zee  string `env:"ZEE_API_URL" env-required:"true"`
 }
 
 func LoadTarget() (*Target, error) {
