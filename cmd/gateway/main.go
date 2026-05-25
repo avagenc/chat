@@ -1,106 +1,85 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
+	"time"
 
-	"github.com/avagenc/api-gateway/internal/config"
-	"github.com/avagenc/api-gateway/internal/gateway"
-	"github.com/avagenc/api-gateway/internal/middleware"
-	"github.com/avagenc/api-gateway/internal/redis"
+	"github.com/avagenc/api-gateway/internal/agent"
+	"github.com/avagenc/api-gateway/internal/identity"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
+	"google.golang.org/api/idtoken"
+	apihttp "go.naturallyfunny.dev/api/http"
+	apisession "go.naturallyfunny.dev/api/session"
+	apitime "go.naturallyfunny.dev/api/time"
 )
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Println("Info: .env file not found, using system environment variables")
+		log.Println("info: .env file not found, using system environment variables")
 	}
 
-	// 1. Load Configurations
-	cfg := struct {
-		app      *config.App
-		server   *config.Server
-		redis    *config.Redis
-		security *config.Security
-		target   *config.Target
-	}{}
+	// redisURL := os.Getenv("REDIS_URL")
+	// if redisURL == "" {
+	// 	log.Fatal("fatal: REDIS_URL is required")
+	// }
+	// redisOpts, err := redis.ParseURL(redisURL)
+	// if err != nil {
+	// 	log.Fatalf("fatal: parse redis URL: %v", fmt.Errorf("unable to parse redis config: %w", err))
+	// }
+	// redisOpts.PoolSize = 20
+	// redisOpts.MinIdleConns = 5
+	// redisClient := redis.NewClient(redisOpts)
+	// pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// defer pingCancel()
+	// if err := redisClient.Ping(pingCtx).Err(); err != nil {
+	// 	log.Fatalf("fatal: connect to redis: %v", err)
+	// }
+	// defer redisClient.Close()
+	// log.Println("Redis connected")
 
-	var err error
-
-	cfg.app, err = config.LoadApp()
+	jwksURL := os.Getenv("IDENTITY_JWKS_URL")
+	if jwksURL == "" {
+		log.Fatal("fatal: IDENTITY_JWKS_URL is required")
+	}
+	jwtAuthenticator, err := identity.NewJWTAuthenticator(jwksURL)
 	if err != nil {
-		log.Fatalf("Failed to load app config: %v", err)
+		log.Fatalf("fatal: build JWT authenticator: %v", err)
 	}
-	cfg.server, err = config.LoadServer()
+
+	// paymentGuard := identity.NewPaymentGuard(redisClient)
+
+	avaURL := os.Getenv("AVA_URL")
+	if avaURL == "" {
+		log.Fatal("fatal: AVA_URL is required")
+	}
+	avaHandler, err := agent.NewHandler(avaURL, nil)
 	if err != nil {
-		log.Fatalf("Failed to load server config: %v", err)
+		log.Fatalf("fatal: build ava handler: %v", err)
 	}
 
-	cfg.redis, err = config.LoadRedis()
+	zeeURL := os.Getenv("ZEE_URL")
+	if zeeURL == "" {
+		log.Fatal("fatal: ZEE_URL is required")
+	}
+	zeeOIDC, err := idtoken.NewClient(context.Background(), zeeURL)
 	if err != nil {
-		log.Fatalf("Failed to load redis config: %v", err)
+		log.Fatalf("fatal: build OIDC client for zee: %v", err)
 	}
-
-	cfg.security, err = config.LoadSecurity()
+	zeeHandler, err := agent.NewHandler(zeeURL, zeeOIDC.Transport)
 	if err != nil {
-		log.Fatalf("Failed to load security config: %v", err)
+		log.Fatalf("fatal: build zee handler: %v", err)
 	}
 
-	cfg.target, err = config.LoadTarget()
-	if err != nil {
-		log.Fatalf("Failed to load target config: %v", err)
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		log.Fatal("fatal: APP_ENV is required")
 	}
 
-	// 2. Initialize Redis
-	redis, err := redis.NewClient(cfg.redis)
-	if err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
-	}
-	defer redis.Close()
-	log.Println("Redis connected")
-
-	// 3. Parse Target URLs
-	target := struct {
-		Nayu *url.URL
-		Zee  *url.URL
-	}{}
-
-	target.Nayu, err = url.Parse(cfg.target.Nayu)
-	if err != nil {
-		log.Fatalf("Invalid Nayu Target URL detected: %v", err)
-	}
-
-	target.Zee, err = url.Parse(cfg.target.Zee)
-	if err != nil {
-		log.Fatalf("Invalid Zee Target URL detected: %v", err)
-	}
-
-	// 4. Initialize Middleware
-	mw := struct {
-		JWT       *middleware.JWT
-		Blocklist *middleware.Blocklist
-	}{}
-
-	mw.JWT, err = middleware.NewJWT(cfg.security.IdentitySupabaseJWKSURL)
-	if err != nil {
-		log.Fatalf("Failed to initialize JWT middleware: %v", err)
-	}
-
-	mw.Blocklist = middleware.NewBlocklist(redis)
-
-	// 5. Initialize Handlers
-	hdl := struct {
-		Nayu *gateway.Handler
-		Zee  *gateway.Handler
-	}{
-		Nayu: gateway.NewHandler(target.Nayu, cfg.security.APIKey),
-		Zee:  gateway.NewHandler(target.Zee, cfg.security.APIKey),
-	}
-
-	// 6. Setup Router
 	r := chi.NewRouter()
 
 	r.Use(chiMiddleware.RequestID)
@@ -108,27 +87,52 @@ func main() {
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 
-	r.Group(func(r chi.Router) {
-		r.Use(mw.JWT.Authenticate)
-		r.Use(mw.Blocklist.DenyBlocked)
-
-		r.Mount("/nayu", http.StripPrefix("/nayu", http.HandlerFunc(hdl.Nayu.Proxy)))
-		r.Mount("/zee", http.StripPrefix("/zee", http.HandlerFunc(hdl.Zee.Proxy)))
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		apihttp.WriteJSON(w, http.StatusOK, struct {
+			Service     string `json:"service"`
+			Version     string `json:"version"`
+			Environment string `json:"environment"`
+			Status      string `json:"status"`
+		}{"gateway", "v0.0.1", appEnv, "UP"})
 	})
 
-	// 7. Start Server
-	server := &http.Server{
-		Addr:         ":" + cfg.server.Port,
+	r.Group(func(r chi.Router) {
+		r.Use(jwtAuthenticator.Authenticate)
+
+		r.Route("/ava", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(apitime.HTTPWithZone)
+				r.Use(apisession.HTTPWithID)
+				r.Mount("/chat", http.StripPrefix("/ava", http.HandlerFunc(avaHandler.Proxy)))
+			})
+			r.Mount("/", http.StripPrefix("/ava", http.HandlerFunc(avaHandler.Proxy)))
+		})
+
+		r.Route("/zee", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(apitime.HTTPWithZone)
+				r.Use(apisession.HTTPWithID)
+				r.Mount("/chat", http.StripPrefix("/zee", http.HandlerFunc(zeeHandler.Proxy)))
+			})
+			r.Mount("/", http.StripPrefix("/zee", http.HandlerFunc(zeeHandler.Proxy)))
+		})
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	s := &http.Server{
+		Addr:         ":" + port,
 		Handler:      r,
-		ReadTimeout:  cfg.server.ReadTimeout,
-		WriteTimeout: cfg.server.WriteTimeout,
-		IdleTimeout:  cfg.server.IdleTimeout,
+		ReadTimeout:  16 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Starting %s (%s) on port %s", cfg.app.Name, cfg.app.Version, cfg.server.Port)
-	log.Printf("Forwarding /nayu -> %s", cfg.target.Nayu)
-
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Failed to start server: %v", err)
+	log.Printf("In the name of Allah, The Most Compassionate, The Most Merciful")
+	log.Printf("Starting gateway service [%s] on port %s", appEnv, port)
+	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("fatal: failed to start server: %v", err)
 	}
 }

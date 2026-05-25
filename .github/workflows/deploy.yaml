@@ -14,8 +14,8 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
-      SERVICE_NAME: api-gateway
-      IMAGE_NAME: api-gateway
+      SERVICE_NAME: gateway
+      IMAGE_NAME: gateway
       APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
@@ -46,14 +46,17 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           region: ${{ env.REGION }}
-          flags: "--allow-unauthenticated --memory=512Mi --cpu=1 --min-instances=1 --max-instances=10 --cpu-boost"
+          flags: |
+            --allow-unauthenticated
+            --memory=128Mi
+            --cpu=1
+            --min-instances=0
+            --max-instances=1
+            --cpu-boost
+            --service-account=${{ vars.GCP_SA_EMAIL }}
 
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
-            NAYU_API_URL=${{ vars.NAYU_API_URL }}
-            ZEE_API_URL=${{ vars.ZEE_API_URL }}
-
-          secrets: |
-            REDIS_URL=GATEWAY_REDIS_READ_ONLY_URL:latest
-            API_KEY=API_KEY:latest
-            IDENTITY_SUPABASE_JWKS_URL=IDENTITY_SUPABASE_JWKS_URL:latest
+            AVA_URL=${{ vars.AVA_URL }}
+            ZEE_URL=${{ vars.ZEE_URL }}
+            IDENTITY_JWKS_URL=${{ vars.IDENTITY_JWKS_URL }}
