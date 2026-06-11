@@ -1,6 +1,7 @@
 package zep
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,6 +35,10 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messages, err := h.service.GetMessages(r.Context(), threadID, request)
+	if errors.Is(err, ErrForbidden) {
+		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
+		return
+	}
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "failed to retrieve messages"})
 		return
@@ -50,6 +55,10 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, err := h.service.ClearMessages(r.Context(), threadID)
+	if errors.Is(err, ErrForbidden) {
+		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
+		return
+	}
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "failed to clear messages"})
 		return
