@@ -9,6 +9,9 @@ import (
 
 	"github.com/avagenc/api-gateway/internal/agent"
 	"github.com/avagenc/api-gateway/internal/identity"
+	"github.com/avagenc/api-gateway/internal/zep"
+	zepclient "github.com/getzep/zep-go/v3/client"
+	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -41,6 +44,7 @@ func main() {
 	// }
 	// defer redisClient.Close()
 	// log.Println("Redis connected")
+	// paymentGuard := identity.NewPaymentGuard(redisClient)
 
 	jwksURL := os.Getenv("IDENTITY_JWKS_URL")
 	if jwksURL == "" {
@@ -51,7 +55,13 @@ func main() {
 		log.Fatalf("fatal: build JWT authenticator: %v", err)
 	}
 
-	// paymentGuard := identity.NewPaymentGuard(redisClient)
+	zepAPIKey := os.Getenv("ZEP_API_KEY")
+	if zepAPIKey == "" {
+		log.Fatal("fatal: ZEP_API_KEY is required")
+	}
+	zepClient := zepclient.NewClient(zepoption.WithAPIKey(zepAPIKey))
+	zepService := zep.NewService(zepClient)
+	zepHandler := zep.NewHandler(zepService)
 
 	avaURL := os.Getenv("AVA_URL")
 	if avaURL == "" {
@@ -93,7 +103,7 @@ func main() {
 			Version     string `json:"version"`
 			Environment string `json:"environment"`
 			Status      string `json:"status"`
-		}{"gateway", "v0.0.1", appEnv, "UP"})
+		}{"platform-api", "v0.0.1", appEnv, "UP"})
 	})
 
 	r.Group(func(r chi.Router) {
@@ -116,6 +126,12 @@ func main() {
 			})
 			r.Mount("/", http.StripPrefix("/zee", http.HandlerFunc(zeeHandler.Proxy)))
 		})
+
+		r.Route("/sessions", func(r chi.Router) {
+			r.Get("/{session-id}/messages", zepHandler.GetMessages)
+			r.Delete("/{session-id}/messages", zepHandler.ClearMessages)
+		})
+
 	})
 
 	port := os.Getenv("PORT")
