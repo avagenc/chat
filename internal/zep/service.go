@@ -30,7 +30,7 @@ func (s *Service) GetMessages(ctx context.Context, threadID string, request *zep
 
 	messages, err := s.client.Thread.Get(ctx, threadID, request)
 	if err != nil {
-		return nil, fmt.Errorf("get messages for thread %q: %w", threadID, err)
+		return nil, fmt.Errorf("get thread %q: %w", threadID, err)
 	}
 
 	if messages.UserID == nil || *messages.UserID != userID {
@@ -48,7 +48,7 @@ func (s *Service) ClearMessages(ctx context.Context, threadID string) (*zep.Succ
 
 	messages, err := s.client.Thread.Get(ctx, threadID, &zep.ThreadGetRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("get thread %q for ownership check: %w", threadID, err)
+		return nil, fmt.Errorf("get thread %q: %w", threadID, err)
 	}
 
 	if messages.UserID == nil || *messages.UserID != userID {
@@ -57,7 +57,7 @@ func (s *Service) ClearMessages(ctx context.Context, threadID string) (*zep.Succ
 
 	response, err := s.client.Thread.Delete(ctx, threadID)
 	if err != nil {
-		return nil, fmt.Errorf("clear messages for thread %q: %w", threadID, err)
+		return nil, fmt.Errorf("delete thread %q: %w", threadID, err)
 	}
 
 	return response, nil

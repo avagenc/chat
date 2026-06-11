@@ -24,7 +24,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "session-id")
 	if threadID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID is required"})
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
 
@@ -40,7 +40,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "failed to retrieve messages"})
+		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "session-id")
 	if threadID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID is required"})
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
 
@@ -60,7 +60,7 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "failed to clear messages"})
+		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
 		return
 	}
 
@@ -99,10 +99,10 @@ func optionalInt(value string) (*int, error) {
 
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("not an integer")
 	}
 	if parsed < 0 {
-		return nil, fmt.Errorf("must be greater than or equal to 0")
+		return nil, errors.New("must be non-negative")
 	}
 
 	return &parsed, nil
@@ -115,10 +115,10 @@ func optionalInt64(value string) (*int64, error) {
 
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("not an integer")
 	}
 	if parsed < 0 {
-		return nil, fmt.Errorf("must be greater than or equal to 0")
+		return nil, errors.New("must be non-negative")
 	}
 
 	return &parsed, nil
