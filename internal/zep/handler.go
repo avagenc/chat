@@ -35,6 +35,10 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messages, err := h.service.GetMessages(r.Context(), threadID, request)
+	if errors.Is(err, ErrNotFound) {
+		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "thread not found"})
+		return
+	}
 	if errors.Is(err, ErrForbidden) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return
@@ -55,6 +59,10 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, err := h.service.ClearMessages(r.Context(), threadID)
+	if errors.Is(err, ErrNotFound) {
+		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "thread not found"})
+		return
+	}
 	if errors.Is(err, ErrForbidden) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return

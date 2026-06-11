@@ -10,7 +10,10 @@ import (
 	"go.naturallyfunny.dev/api/user"
 )
 
-var ErrForbidden = errors.New("forbidden")
+var (
+	ErrForbidden = errors.New("forbidden")
+	ErrNotFound  = errors.New("thread not found")
+)
 
 type Service struct {
 	client *client.Client
@@ -30,6 +33,10 @@ func (s *Service) GetMessages(ctx context.Context, threadID string, request *zep
 
 	messages, err := s.client.Thread.Get(ctx, threadID, request)
 	if err != nil {
+		var notFound *zep.NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("get thread %q: %w", threadID, err)
 	}
 
@@ -48,6 +55,10 @@ func (s *Service) ClearMessages(ctx context.Context, threadID string) (*zep.Succ
 
 	messages, err := s.client.Thread.Get(ctx, threadID, &zep.ThreadGetRequest{})
 	if err != nil {
+		var notFound *zep.NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("get thread %q: %w", threadID, err)
 	}
 
@@ -57,6 +68,10 @@ func (s *Service) ClearMessages(ctx context.Context, threadID string) (*zep.Succ
 
 	response, err := s.client.Thread.Delete(ctx, threadID)
 	if err != nil {
+		var notFound *zep.NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("delete thread %q: %w", threadID, err)
 	}
 
