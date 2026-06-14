@@ -20,7 +20,7 @@ type JWTAuthenticator struct {
 func NewJWTAuthenticator(jwksURL string) (*JWTAuthenticator, error) {
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create JWKS from URL: %w", err)
+		return nil, fmt.Errorf("create JWKS from %q: %w", jwksURL, err)
 	}
 	return &JWTAuthenticator{jwks: jwks}, nil
 }

@@ -16,7 +16,7 @@ func NewPaymentGuard(redisClient *redis.Client) *PaymentGuard {
 	return &PaymentGuard{redisClient: redisClient}
 }
 
-func (b *PaymentGuard) DenyBlocked(next http.Handler) http.Handler {
+func (g *PaymentGuard) DenyBlocked(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, err := user.IDFromContext(r.Context())
 		if err != nil {
@@ -24,7 +24,7 @@ func (b *PaymentGuard) DenyBlocked(next http.Handler) http.Handler {
 			return
 		}
 
-		blocked, err := b.redisClient.SIsMember(r.Context(), "users:blocked:payment", userID).Result()
+		blocked, err := g.redisClient.SIsMember(r.Context(), "users:blocked:payment", userID).Result()
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "system integrity check failed"})
 			return
