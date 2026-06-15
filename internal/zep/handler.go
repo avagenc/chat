@@ -75,6 +75,54 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 	apihttp.WriteJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
+	nodesReq, err := graphNodesRequest(r)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+
+	edgesReq, err := graphEdgesRequest(r)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+
+	graph, err := h.service.GetKnowledge(r.Context(), nodesReq, edgesReq)
+	if errors.Is(err, ErrNotFound) {
+		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "user not found"})
+		return
+	}
+	if errors.Is(err, ErrForbidden) {
+		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
+		return
+	}
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
+		return
+	}
+
+	apihttp.WriteJSON(w, http.StatusOK, graph)
+}
+
+func (h *Handler) DeleteKnowledge(w http.ResponseWriter, r *http.Request) {
+	response, err := h.service.DeleteKnowledge(r.Context())
+	if errors.Is(err, ErrNotFound) {
+		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "user not found"})
+		return
+	}
+	if errors.Is(err, ErrForbidden) {
+		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
+		return
+	}
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
+		return
+	}
+
+	apihttp.WriteJSON(w, http.StatusOK, response)
+}
+
 func threadGetRequest(r *http.Request) (*zep.ThreadGetRequest, error) {
 	query := r.URL.Query()
 
@@ -98,6 +146,40 @@ func threadGetRequest(r *http.Request) (*zep.ThreadGetRequest, error) {
 		Cursor: cursor,
 		Lastn:  lastn,
 	}, nil
+}
+
+func graphNodesRequest(r *http.Request) (*zep.GraphNodesRequest, error) {
+	query := r.URL.Query()
+
+	limit, err := optionalInt(query.Get("limit"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid limit: %w", err)
+	}
+
+	uuidCursor := query.Get("cursor")
+
+	req := &zep.GraphNodesRequest{Limit: limit}
+	if uuidCursor != "" {
+		req.UUIDCursor = &uuidCursor
+	}
+	return req, nil
+}
+
+func graphEdgesRequest(r *http.Request) (*zep.GraphEdgesRequest, error) {
+	query := r.URL.Query()
+
+	limit, err := optionalInt(query.Get("limit"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid limit: %w", err)
+	}
+
+	uuidCursor := query.Get("cursor")
+
+	req := &zep.GraphEdgesRequest{Limit: limit}
+	if uuidCursor != "" {
+		req.UUIDCursor = &uuidCursor
+	}
+	return req, nil
 }
 
 func optionalInt(value string) (*int, error) {

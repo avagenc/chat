@@ -176,6 +176,11 @@ func main() {
 			r.Delete("/{session-id}/messages", zepHandler.ClearMessages)
 		})
 
+		r.Route("/knowledge", func(r chi.Router) {
+			r.Get("/", zepHandler.GetKnowledge)
+			r.Delete("/", zepHandler.DeleteKnowledge)
+		})
+
 		r.Route("/postera", func(r chi.Router) {
 			r.Get("/", posteraHandler.ListUpcoming)
 			r.Delete("/{posterum-id}", posteraHandler.Cancel)
