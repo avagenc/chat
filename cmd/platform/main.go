@@ -126,7 +126,7 @@ func main() {
 		postera.WithHumanFromContext(apiuser.ContextKey),
 	)
 	posteraHandler := intpostera.NewHandler(
-		intpostera.NewService(postarius),
+		postarius,
 	)
 
 	appEnv := os.Getenv("APP_ENV")
