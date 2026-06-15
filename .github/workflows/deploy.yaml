@@ -14,8 +14,8 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
-      SERVICE_NAME: gateway
-      IMAGE_NAME: gateway
+      SERVICE_NAME: platform
+      IMAGE_NAME: plaform
       APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
