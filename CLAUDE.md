@@ -21,7 +21,7 @@ internal/zep/               — handler + service untuk session memory (Zep)
 **zep** — punya service layer karena ada ownership check manual: `Thread.Get` dulu, bandingkan `UserID`, baru `Thread.Delete`. Zep tidak scope-aware seperti Postarius.
 
 - `/sessions/{id}/messages` — GET/DELETE pesan satu thread. Butuh ownership check karena `threadID` dari URL bisa milik siapa saja.
-- `/knowledge` — GET/DELETE knowledge graph user. Tidak butuh ownership check karena operasi sudah di-scope ke `userID` dari JWT (`GetByUserID`, `User.Delete`). **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — behavior ini disengaja.**
+- `/memory` — GET/DELETE knowledge graph user. Tidak butuh ownership check karena operasi sudah di-scope ke `userID` dari JWT (`GetByUserID`, `User.Delete`). **DELETE `/memory` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — behavior ini disengaja.**
 
 **identity** — `JWTAuthenticator` middleware extract `sub` dari JWT, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`.
 
