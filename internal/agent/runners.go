@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"fmt"
@@ -41,13 +41,13 @@ func newRunner(a adkagent.Agent, zc *zepclient.Client, displayName string) (*run
 		zep.WithTimeHarnessFromContext(apitime.ContextKey),
 	)
 
-	// The instruction plugin lets chat append per-run group-chat / channel
+	// The instruction plugin lets the package append per-run group-chat / channel
 	// framing (instruction.go) onto an agent module that knows nothing about it.
 	// We use real per-agent runners (not agenttool), so the plugin fires for
 	// every agent — sidestepping adk-go #669.
 	instructionPlugin, err := newInstructionPlugin()
 	if err != nil {
-		return nil, fmt.Errorf("chat: instruction plugin for %q: %w", a.Name(), err)
+		return nil, fmt.Errorf("agent: instruction plugin for %q: %w", a.Name(), err)
 	}
 
 	r, err := runner.New(runner.Config{
@@ -58,7 +58,7 @@ func newRunner(a adkagent.Agent, zc *zepclient.Client, displayName string) (*run
 		PluginConfig:      runner.PluginConfig{Plugins: []*plugin.Plugin{instructionPlugin}},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("chat: runner for %q: %w", a.Name(), err)
+		return nil, fmt.Errorf("agent: runner for %q: %w", a.Name(), err)
 	}
 	return r, nil
 }

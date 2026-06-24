@@ -1,4 +1,4 @@
-package chat
+package agent
 
 // specialistGroupChatInstruction is the group-chat framing chat injects per-run
 // into a specialist (§2.4). It is the SAME whether the human tags the specialist

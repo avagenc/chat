@@ -1,5 +1,6 @@
-// Package chat composes the agent modules into the monolith's in-process group
-// chat and serves the human-facing chat API.
+// Package agent composes the agent roster into the chat module's in-process
+// group chat and serves the human-facing chat API. Agents are one feature of
+// the chat module, not the module itself.
 //
 // Model (matches the proven Avagenc behavior, now in-process):
 //
@@ -13,9 +14,9 @@
 //     the inbound persists as a user turn authored "Ava" (prefixed @name), and
 //     the specialist replies independently as itself, or stays silent.
 //
-// There is no chat-side @mention dispatch loop: delegation is a tool call within
+// There is no agent-side @mention dispatch loop: delegation is a tool call within
 // Ava's react loop, not a parse of Ava's output.
-package chat
+package agent
 
 import (
 	"encoding/json"
@@ -36,7 +37,7 @@ import (
 )
 
 // humanChannel is an agent's human-facing runner plus the per-run instruction
-// chat injects on that channel. Ava (the orchestrator) needs none; specialists
+// the package injects on that channel. Ava (the orchestrator) needs none; specialists
 // get the group-chat framing since their modules are channel-agnostic.
 type humanChannel struct {
 	runner      *runner.Runner
@@ -62,7 +63,7 @@ type chatResponse struct {
 }
 
 // Chat handles POST /{agent}/chat. The agent name is the URL dispatch key; the
-// frontend already resolved any @mention into the URL (§2.6), so chat does not
+// frontend already resolved any @mention into the URL (§2.6), so the package does not
 // parse the human's message.
 func (s *Service) Chat(w http.ResponseWriter, r *http.Request) {
 	channel, ok := s.channels[chi.URLParam(r, "agent")]

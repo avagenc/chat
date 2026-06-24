@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func NewSubAgent(name, description string, avaChannelRunner *runner.Runner) ava.
 func (s *runnerSubAgent) Name() string        { return s.name }
 func (s *runnerSubAgent) Description() string { return s.description }
 
-func (s *runnerSubAgent) Message(ctx context.Context, message string) (string, error) {
+func (s *runnerSubAgent) Run(ctx context.Context, message string) (string, error) {
 	userID, err := apiuser.IDFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: user identity: %w", s.name, err)
@@ -52,8 +52,8 @@ func (s *runnerSubAgent) Message(ctx context.Context, message string) (string, e
 		return "", fmt.Errorf("subagent %s: session identity: %w", s.name, err)
 	}
 
-	// Message is Ava's verbatim delegation text. Ava is instructed to tag @name
-	// itself (lowercase, anywhere) — chat does not prepend it (no rule-based
+	// message is Ava's verbatim delegation text. Ava is instructed to tag @name
+	// itself (lowercase, anywhere) — the package does not prepend it (no rule-based
 	// tagging). The specialist also reads the shared history, so the tag is just
 	// a readability cue, never the routing mechanism.
 	return collect(s.runner.Run(ctx, userID, sessionID,

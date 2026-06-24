@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"fmt"
@@ -63,7 +63,7 @@ func Build(llm model.LLM, zc *zepclient.Client, tuyaClient *tuya.Client) (*Servi
 
 	// 5. Human-facing dispatch map. Ava is the orchestrator and owns its
 	// group-chat behavior in its module, so no injected instruction; specialists
-	// are channel-agnostic, so chat injects the human-channel framing.
+	// are channel-agnostic, so the package injects the human-channel framing.
 	return NewService(map[string]humanChannel{
 		"ava": {runner: avaHuman},
 		"zee": {runner: zeeHuman, instruction: specialistGroupChatInstruction},

@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"google.golang.org/adk/agent"
@@ -18,9 +18,9 @@ const runInstructionKey = "temp:chat_instruction"
 // the system prompt. It is registered on every runner; a Run that does not pass
 // WithStateDelta(runInstructionKey, …) simply gets no extra instruction.
 //
-// This is how the consumer (chat) layers the group-chat / channel framing on top
+// This is how this package layers the group-chat / channel framing on top
 // of an agent module that knows nothing about it: the module owns its base
-// identity, chat appends the situational delta at runner.Run.
+// identity, this package appends the situational delta at runner.Run.
 func newInstructionPlugin() (*plugin.Plugin, error) {
 	return plugin.New(plugin.Config{
 		Name:                "chat-run-instruction",
