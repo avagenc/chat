@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/avagenc/chat/internal/memory"
+	"github.com/avagenc/chat/memory"
 	zep "github.com/getzep/zep-go/v3"
 	"github.com/getzep/zep-go/v3/client"
 )
@@ -36,16 +36,15 @@ func (s *SessionStore) Get(ctx context.Context, id string, query *memory.Message
 	return messageList(response), nil
 }
 
-func (s *SessionStore) Delete(ctx context.Context, id string) (*memory.SuccessResponse, error) {
-	response, err := s.client.Thread.Delete(ctx, id)
-	if err != nil {
+func (s *SessionStore) Delete(ctx context.Context, id string) error {
+	if _, err := s.client.Thread.Delete(ctx, id); err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return nil, memory.ErrNotFound
+			return memory.ErrNotFound
 		}
-		return nil, fmt.Errorf("delete thread %q: %w", id, err)
+		return fmt.Errorf("delete thread %q: %w", id, err)
 	}
-	return successResponse(response), nil
+	return nil
 }
 
 func threadGetRequest(q *memory.MessagesQuery) *zep.ThreadGetRequest {

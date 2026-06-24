@@ -9,8 +9,14 @@ cmd/platform/main.go        — entrypoint, wire-up semua dependency
 internal/agent/             — reverse proxy ke agent backend (ava, zee)
 internal/identity/          — JWT autentikasi + payment guard middleware
 internal/postera/           — handler untuk scheduled messages (postera domain)
-internal/zep/               — handler + service untuk session memory (Zep)
+memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + ErrNotFound
+internal/memory/            — handler + service (ownership/authz, ErrForbidden) yang mendorong ports
+internal/zep/               — adapter Zep yang implement ports di memory/ (satu-satunya yang import Zep)
 ```
+
+Catatan idiom: `memory/` sengaja public (di luar `internal/`) supaya `internal/zep` bisa
+mengimplementasikannya tanpa ada satu package internal yang mengimport package internal lain.
+`internal/memory` dan `internal/zep` sama-sama hanya bergantung pada `memory/`, bukan satu sama lain.
 
 ## Domain
 
@@ -50,3 +56,6 @@ Semua route di bawah group middleware `jwtAuthenticator.Authenticate`. User ID t
 - Service layer hanya kalau ada logika bisnis nyata (ownership check, multi-step orchestration)
 - Tidak ada mock testing — integration test untuk behavior, bukan unit test handler
 - `go.naturallyfunny.dev/api` menyediakan helper context (user, session, time) dan HTTP utilities
+- Tidak ada nama file stutter (`pkg/pkg.go`, mis. `memory/memory.go`, `zep/zep.go`). Pisah file per
+  konsep (mis. `session.go`, `knowledge.go`). Doc comment package + deklarasi yang benar-benar
+  lintas-file (sentinel/tipe shared, helper bersama) taruh di `doc.go`.

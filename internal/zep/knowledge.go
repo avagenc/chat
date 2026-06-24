@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/avagenc/chat/internal/memory"
+	"github.com/avagenc/chat/memory"
 	zep "github.com/getzep/zep-go/v3"
 	"github.com/getzep/zep-go/v3/client"
 )
@@ -56,16 +56,15 @@ func (s *KnowledgeStore) Edges(ctx context.Context, userID string, query *memory
 
 // Delete maps a memory wipe to Zep's User.Delete, which removes the user and all
 // of their data, threads included.
-func (s *KnowledgeStore) Delete(ctx context.Context, userID string) (*memory.SuccessResponse, error) {
-	response, err := s.client.User.Delete(ctx, userID)
-	if err != nil {
+func (s *KnowledgeStore) Delete(ctx context.Context, userID string) error {
+	if _, err := s.client.User.Delete(ctx, userID); err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return nil, memory.ErrNotFound
+			return memory.ErrNotFound
 		}
-		return nil, fmt.Errorf("delete user %q: %w", userID, err)
+		return fmt.Errorf("delete user %q: %w", userID, err)
 	}
-	return successResponse(response), nil
+	return nil
 }
 
 func graphNodesRequest(q *memory.GraphQuery) *zep.GraphNodesRequest {

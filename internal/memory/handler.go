@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/avagenc/chat/memory"
 	"github.com/go-chi/chi/v5"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apiuser "go.naturallyfunny.dev/api/user"
@@ -47,7 +48,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messages, err := h.sessions.GetMessages(r.Context(), sessionID, query)
-	if errors.Is(err, ErrNotFound) {
+	if errors.Is(err, memory.ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
 		return
 	}
@@ -70,8 +71,8 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.sessions.ClearMessages(r.Context(), sessionID)
-	if errors.Is(err, ErrNotFound) {
+	err := h.sessions.ClearMessages(r.Context(), sessionID)
+	if errors.Is(err, memory.ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
 		return
 	}
@@ -84,7 +85,7 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apihttp.WriteJSON(w, http.StatusOK, response)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- semantic memory: knowledge graph ---
@@ -97,7 +98,7 @@ func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	graph, err := h.knowledge.Get(r.Context(), query, query)
-	if errors.Is(err, ErrNotFound) {
+	if errors.Is(err, memory.ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return
 	}
@@ -114,8 +115,8 @@ func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteKnowledge(w http.ResponseWriter, r *http.Request) {
-	response, err := h.knowledge.Delete(r.Context())
-	if errors.Is(err, ErrNotFound) {
+	err := h.knowledge.Delete(r.Context())
+	if errors.Is(err, memory.ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return
 	}
@@ -128,7 +129,7 @@ func (h *Handler) DeleteKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apihttp.WriteJSON(w, http.StatusOK, response)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- prospective memory: postera ---
@@ -174,7 +175,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 
 // --- query helpers ---
 
-func messagesQuery(r *http.Request) (*MessagesQuery, error) {
+func messagesQuery(r *http.Request) (*memory.MessagesQuery, error) {
 	query := r.URL.Query()
 
 	limit, err := optionalInt(query.Get("limit"))
@@ -192,14 +193,14 @@ func messagesQuery(r *http.Request) (*MessagesQuery, error) {
 		return nil, fmt.Errorf("invalid lastn: %w", err)
 	}
 
-	return &MessagesQuery{
+	return &memory.MessagesQuery{
 		Limit:  limit,
 		Cursor: cursor,
 		Lastn:  lastn,
 	}, nil
 }
 
-func graphQuery(r *http.Request) (*GraphQuery, error) {
+func graphQuery(r *http.Request) (*memory.GraphQuery, error) {
 	query := r.URL.Query()
 
 	limit, err := optionalInt(query.Get("limit"))
@@ -207,7 +208,7 @@ func graphQuery(r *http.Request) (*GraphQuery, error) {
 		return nil, fmt.Errorf("invalid limit: %w", err)
 	}
 
-	q := &GraphQuery{Limit: limit}
+	q := &memory.GraphQuery{Limit: limit}
 	if uuidCursor := query.Get("cursor"); uuidCursor != "" {
 		q.UUIDCursor = &uuidCursor
 	}
