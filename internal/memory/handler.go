@@ -2,11 +2,9 @@ package memory
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
-	"github.com/avagenc/chat/memory"
 	"github.com/go-chi/chi/v5"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apiuser "go.naturallyfunny.dev/api/user"
@@ -16,8 +14,10 @@ import (
 // Handler is the HTTP glue for the whole memory domain. It fronts all three
 // memory types of the family: episodic (sessions) via SessionService, semantic
 // (knowledge graph) via KnowledgeService, and prospective (self-addressed future
-// messages) via Postera's Postarius. Postera differs only in that its service
-// already exists upstream; it is no less a memory than the other two.
+// messages) via Postera's Postarius. The episodic and semantic slices live in
+// session.go and knowledge.go alongside their services; postera has no service of
+// its own — its orchestrator is the external postera.Postarius — so its glue
+// stays here with the spine.
 type Handler struct {
 	sessions  *SessionService
 	knowledge *KnowledgeService
@@ -32,105 +32,13 @@ func NewHandler(sessions *SessionService, knowledge *KnowledgeService, postarius
 	}
 }
 
-// --- episodic memory: sessions ---
-
-func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "session-id")
-	if sessionID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
-
-	query, err := messagesQuery(r)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
-		return
-	}
-
-	messages, err := h.sessions.GetMessages(r.Context(), sessionID, query)
-	if errors.Is(err, memory.ErrSessionNotFound) {
-		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
-		return
-	}
-	if errors.Is(err, ErrForbidden) {
-		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
-		return
-	}
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
-		return
-	}
-
-	apihttp.WriteJSON(w, http.StatusOK, messages)
-}
-
-func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "session-id")
-	if sessionID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
-
-	err := h.sessions.ClearMessages(r.Context(), sessionID)
-	if errors.Is(err, memory.ErrSessionNotFound) {
-		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
-		return
-	}
-	if errors.Is(err, ErrForbidden) {
-		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
-		return
-	}
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// --- semantic memory: knowledge graph ---
-
-func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
-	query, err := graphQuery(r)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
-		return
-	}
-
-	graph, err := h.knowledge.Get(r.Context(), query, query)
-	if errors.Is(err, memory.ErrKnowledgeNotFound) {
-		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
-		return
-	}
-	if errors.Is(err, ErrForbidden) {
-		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
-		return
-	}
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
-		return
-	}
-
-	apihttp.WriteJSON(w, http.StatusOK, graph)
-}
-
-func (h *Handler) DeleteKnowledge(w http.ResponseWriter, r *http.Request) {
-	err := h.knowledge.Delete(r.Context())
-	if errors.Is(err, memory.ErrKnowledgeNotFound) {
-		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
-		return
-	}
-	if errors.Is(err, ErrForbidden) {
-		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
-		return
-	}
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
+// ErrForbidden is the gateway's authorization sentinel: the caller has no
+// identity, or the requested session belongs to someone else. It is a gateway
+// concern, not a port one, so it lives here rather than in the public memory
+// package. (The not-found sentinels, memory.ErrSessionNotFound and
+// memory.ErrKnowledgeNotFound, come from the adapter.) Both SessionService and
+// KnowledgeService return it, so it sits on the spine rather than in either slice.
+var ErrForbidden = errors.New("forbidden")
 
 // --- prospective memory: postera ---
 
@@ -173,47 +81,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- query helpers ---
-
-func messagesQuery(r *http.Request) (*memory.MessagesQuery, error) {
-	query := r.URL.Query()
-
-	limit, err := optionalInt(query.Get("limit"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid limit: %w", err)
-	}
-
-	cursor, err := optionalInt64(query.Get("cursor"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid cursor: %w", err)
-	}
-
-	lastn, err := optionalInt(query.Get("lastn"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid lastn: %w", err)
-	}
-
-	return &memory.MessagesQuery{
-		Limit:  limit,
-		Cursor: cursor,
-		Lastn:  lastn,
-	}, nil
-}
-
-func graphQuery(r *http.Request) (*memory.GraphQuery, error) {
-	query := r.URL.Query()
-
-	limit, err := optionalInt(query.Get("limit"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid limit: %w", err)
-	}
-
-	q := &memory.GraphQuery{Limit: limit}
-	if uuidCursor := query.Get("cursor"); uuidCursor != "" {
-		q.UUIDCursor = &uuidCursor
-	}
-	return q, nil
-}
+// --- shared query helpers ---
 
 func optionalInt(value string) (*int, error) {
 	if value == "" {
