@@ -48,7 +48,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messages, err := h.sessions.GetMessages(r.Context(), sessionID, query)
-	if errors.Is(err, memory.ErrNotFound) {
+	if errors.Is(err, memory.ErrSessionNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
 		return
 	}
@@ -72,7 +72,7 @@ func (h *Handler) ClearMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err := h.sessions.ClearMessages(r.Context(), sessionID)
-	if errors.Is(err, memory.ErrNotFound) {
+	if errors.Is(err, memory.ErrSessionNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
 		return
 	}
@@ -98,7 +98,7 @@ func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	graph, err := h.knowledge.Get(r.Context(), query, query)
-	if errors.Is(err, memory.ErrNotFound) {
+	if errors.Is(err, memory.ErrKnowledgeNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return
 	}
@@ -116,7 +116,7 @@ func (h *Handler) GetKnowledge(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteKnowledge(w http.ResponseWriter, r *http.Request) {
 	err := h.knowledge.Delete(r.Context())
-	if errors.Is(err, memory.ErrNotFound) {
+	if errors.Is(err, memory.ErrKnowledgeNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return
 	}

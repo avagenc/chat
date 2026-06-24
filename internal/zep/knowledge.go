@@ -27,7 +27,7 @@ func (s *KnowledgeStore) Nodes(ctx context.Context, userID string, query *memory
 	if err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return nil, memory.ErrNotFound
+			return nil, memory.ErrKnowledgeNotFound
 		}
 		return nil, fmt.Errorf("get nodes for user %q: %w", userID, err)
 	}
@@ -43,7 +43,7 @@ func (s *KnowledgeStore) Edges(ctx context.Context, userID string, query *memory
 	if err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return nil, memory.ErrNotFound
+			return nil, memory.ErrKnowledgeNotFound
 		}
 		return nil, fmt.Errorf("get edges for user %q: %w", userID, err)
 	}
@@ -60,7 +60,7 @@ func (s *KnowledgeStore) Delete(ctx context.Context, userID string) error {
 	if _, err := s.client.User.Delete(ctx, userID); err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return memory.ErrNotFound
+			return memory.ErrKnowledgeNotFound
 		}
 		return fmt.Errorf("delete user %q: %w", userID, err)
 	}

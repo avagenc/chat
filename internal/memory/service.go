@@ -12,7 +12,8 @@ import (
 // ErrForbidden is the gateway's authorization sentinel: the caller has no
 // identity, or the requested session belongs to someone else. It is a gateway
 // concern, not a port one, so it lives here rather than in the public memory
-// package. (memory.ErrNotFound, the port-level sentinel, comes from the adapter.)
+// package. (The not-found sentinels, memory.ErrSessionNotFound and
+// memory.ErrKnowledgeNotFound, come from the adapter.)
 var ErrForbidden = errors.New("forbidden")
 
 // SessionService is the episodic-memory service. It enforces ownership before
@@ -36,8 +37,8 @@ func (s *SessionService) GetMessages(ctx context.Context, sessionID string, quer
 
 	messages, err := s.store.Get(ctx, sessionID, query)
 	if err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return nil, memory.ErrNotFound
+		if errors.Is(err, memory.ErrSessionNotFound) {
+			return nil, memory.ErrSessionNotFound
 		}
 		return nil, fmt.Errorf("get session %q: %w", sessionID, err)
 	}
@@ -57,8 +58,8 @@ func (s *SessionService) ClearMessages(ctx context.Context, sessionID string) er
 
 	messages, err := s.store.Get(ctx, sessionID, &memory.MessagesQuery{})
 	if err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return memory.ErrNotFound
+		if errors.Is(err, memory.ErrSessionNotFound) {
+			return memory.ErrSessionNotFound
 		}
 		return fmt.Errorf("get session %q: %w", sessionID, err)
 	}
@@ -68,8 +69,8 @@ func (s *SessionService) ClearMessages(ctx context.Context, sessionID string) er
 	}
 
 	if err := s.store.Delete(ctx, sessionID); err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return memory.ErrNotFound
+		if errors.Is(err, memory.ErrSessionNotFound) {
+			return memory.ErrSessionNotFound
 		}
 		return fmt.Errorf("delete session %q: %w", sessionID, err)
 	}
@@ -98,16 +99,16 @@ func (s *KnowledgeService) Get(ctx context.Context, nodesQuery, edgesQuery *memo
 
 	nodes, err := s.store.Nodes(ctx, userID, nodesQuery)
 	if err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return nil, memory.ErrNotFound
+		if errors.Is(err, memory.ErrKnowledgeNotFound) {
+			return nil, memory.ErrKnowledgeNotFound
 		}
 		return nil, fmt.Errorf("get nodes for user %q: %w", userID, err)
 	}
 
 	edges, err := s.store.Edges(ctx, userID, edgesQuery)
 	if err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return nil, memory.ErrNotFound
+		if errors.Is(err, memory.ErrKnowledgeNotFound) {
+			return nil, memory.ErrKnowledgeNotFound
 		}
 		return nil, fmt.Errorf("get edges for user %q: %w", userID, err)
 	}
@@ -127,8 +128,8 @@ func (s *KnowledgeService) Delete(ctx context.Context) error {
 	}
 
 	if err := s.store.Delete(ctx, userID); err != nil {
-		if errors.Is(err, memory.ErrNotFound) {
-			return memory.ErrNotFound
+		if errors.Is(err, memory.ErrKnowledgeNotFound) {
+			return memory.ErrKnowledgeNotFound
 		}
 		return fmt.Errorf("delete memory for user %q: %w", userID, err)
 	}

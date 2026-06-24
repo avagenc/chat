@@ -1,6 +1,14 @@
 package memory
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrKnowledgeNotFound is the sentinel a KnowledgeStore returns when the backend
+// has no knowledge graph for the user. Services and handlers match it with
+// errors.Is to map to a 404.
+var ErrKnowledgeNotFound = errors.New("knowledge not found")
 
 // KnowledgeStore is the semantic-memory port: a user's knowledge graph.
 type KnowledgeStore interface {

@@ -1,3 +1,7 @@
+// Package zep implements the memory domain's ports on top of Zep. It is the only
+// package that imports the Zep SDK, mapping Zep's types and not-found errors onto
+// the memory package's. Swapping providers means writing a sibling adapter, not
+// editing memory.
 package zep
 
 import (
@@ -29,7 +33,7 @@ func (s *SessionStore) Get(ctx context.Context, id string, query *memory.Message
 	if err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return nil, memory.ErrNotFound
+			return nil, memory.ErrSessionNotFound
 		}
 		return nil, fmt.Errorf("get thread %q: %w", id, err)
 	}
@@ -40,7 +44,7 @@ func (s *SessionStore) Delete(ctx context.Context, id string) error {
 	if _, err := s.client.Thread.Delete(ctx, id); err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
-			return memory.ErrNotFound
+			return memory.ErrSessionNotFound
 		}
 		return fmt.Errorf("delete thread %q: %w", id, err)
 	}
