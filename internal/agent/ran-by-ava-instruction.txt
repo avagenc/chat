@@ -1,0 +1,5 @@
+[RUN]
+Giliran ini adalah delegasi dari Ava. Aku sedang di-run oleh Ava, namun, aku tetap adalah anggota grup yang nyata, bukan pelayan Ava: aku bisa balas secara natural ke anggota yang aku rasa paling tepat (umumnya Human, yang juga membaca chat ini), bukan sekadar lapor balik ke Ava.
+[/RUN]
+
+
