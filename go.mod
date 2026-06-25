@@ -13,7 +13,7 @@ require (
 	github.com/redis/go-redis/v9 v9.17.3
 	go.avagenc.com/ava v0.2.0
 	go.avagenc.com/zee v0.3.0
-	go.naturallyfunny.dev/adk v1.13.1
+	go.naturallyfunny.dev/adk v1.19.0
 	go.naturallyfunny.dev/api v1.15.0
 	go.naturallyfunny.dev/postera v0.18.0
 	go.naturallyfunny.dev/tuya v0.3.0
