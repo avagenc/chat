@@ -10,13 +10,16 @@ import (
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
 	"github.com/avagenc/chat/internal/agent"
 	"github.com/avagenc/chat/internal/memory"
-	memoryzep "github.com/avagenc/chat/internal/memory/zep"
+	memoryzep "github.com/avagenc/chat/internal/zep"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.avagenc.com/ava"
+	"go.avagenc.com/zee"
+	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apisession "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
@@ -28,6 +31,7 @@ import (
 	"go.naturallyfunny.dev/tuya/cloud"
 	tuyapostgres "go.naturallyfunny.dev/tuya/postgres"
 	"google.golang.org/adk/model/gemini"
+	"google.golang.org/adk/runner"
 	"google.golang.org/genai"
 )
 
@@ -57,10 +61,9 @@ func main() {
 	sessionService := memory.NewSessionService(memoryzep.NewSessionStore(zepClient))
 	knowledgeService := memory.NewKnowledgeService(memoryzep.NewKnowledgeStore(zepClient))
 
-	// Agents now run in-process over the shared Zep backend (zepClient) instead
-	// of being reverse-proxied to AVA_URL/ZEE_URL. agent.Build composes the whole
-	// roster (Ava + specialists), their per-channel Zep runners, and Ava's
-	// in-process delegation graph, returning the human-facing chat Service.
+	// Agents run in-process over the shared Zep backend (zepClient) instead of
+	// being reverse-proxied to AVA_URL/ZEE_URL. The roster is wired explicitly
+	// below (after postera, which Ava needs) — see "agent roster".
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	if geminiAPIKey == "" {
 		log.Fatal("fatal: GEMINI_API_KEY is required")
@@ -108,11 +111,6 @@ func main() {
 		log.Fatalf("fatal: build tuya cloud client: %v", err)
 	}
 	tuyaClient := tuya.New(cloud.NewIoT(tuyaCloudClient), tuyaAccountStore)
-
-	chatService, err := agent.Build(model, zepClient, tuyaClient)
-	if err != nil {
-		log.Fatalf("fatal: build chat service: %v", err)
-	}
 
 	posteraDBURL := os.Getenv("POSTERA_DB_URL")
 	if posteraDBURL == "" {
@@ -168,6 +166,60 @@ func main() {
 		postera.WithHumanFromContext(apiuser.ContextKey),
 	)
 
+	// --- agent roster (in-process group chat over one shared Zep thread) -------
+	// Wired explicitly here, like every other feature. One shared session +
+	// memory service back the whole roster; speaker and timezone are resolved per
+	// run from context, the session instruction is the shared base.
+	chatSessions := adkzep.NewSessionService(zepClient,
+		adkzep.WithSpeakerResolver(adkzep.NameFromContext()),
+		adkzep.WithInstruction(agent.SessionInstructionDeltaKey),
+		adkzep.WithMessageHistoryLength(16),
+		adkzep.WithTimeHarness(adkzep.ZoneFromContext()),
+	)
+	chatMemories := adkzep.NewMemoryService(zepClient)
+
+	// Zee — specialist. One runner over the shared services, reused by both the
+	// human channel (specialistHandler) and Ava's delegation (ForAva).
+	zeeAgent, err := zee.New(zee.Config{Model: model, TuyaClient: tuyaClient, AdditionalInstruction: agent.Instruction()})
+	if err != nil {
+		log.Fatalf("fatal: build zee agent: %v", err)
+	}
+	zeeRunner, err := runner.New(runner.Config{
+		AppName:           "avagenc",
+		Agent:             zeeAgent,
+		SessionService:    chatSessions,
+		MemoryService:     chatMemories,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		log.Fatalf("fatal: build zee runner: %v", err)
+	}
+
+	// Ava — orchestrator. Delegates to specialists as sub-agents, and owns
+	// self-recall via postarius (the Awaken callback).
+	avaAgent, err := ava.New(ava.Config{
+		Model:                 model,
+		Postarius:             postarius,
+		SubAgents:             []ava.SubAgent{agent.ForAva(zeeAgent, zeeRunner)},
+		AdditionalInstruction: agent.Instruction(),
+	})
+	if err != nil {
+		log.Fatalf("fatal: build ava agent: %v", err)
+	}
+	avaRunner, err := runner.New(runner.Config{
+		AppName:           "avagenc",
+		Agent:             avaAgent,
+		SessionService:    chatSessions,
+		MemoryService:     chatMemories,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		log.Fatalf("fatal: build ava runner: %v", err)
+	}
+
+	avaHandler := agent.NewAvaHandler(avaRunner)
+	zeeHandler := agent.NewSpecialistHandler(zeeRunner)
+
 	// One handler fronts the whole memory family: episodic (sessions), semantic
 	// (knowledge graph), and prospective (postera) memory.
 	memoryHandler := memory.NewHandler(sessionService, knowledgeService, postarius)
@@ -196,13 +248,16 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(apiuser.HTTPWithID) // TEMP: replaces jwtAuthenticator.Authenticate
 
-		// POST /{agent}/chat — in-process group chat. {agent} is the dispatch key
-		// (e.g. "ava", "zee"); Ava delegates to specialists via sub-agent tool
-		// calls inside its own run, over the shared session.
+		// In-process group chat over the shared session. One explicit route per
+		// agent. POST /ava — human → Ava (orchestrator; delegates to specialists
+		// inside its own run). POST /ava/awaken — Cloud Tasks fires one of Ava's
+		// scheduled postera notes (raw-text body). POST /zee — human → Zee directly.
 		r.Group(func(r chi.Router) {
 			r.Use(apitime.HTTPWithZone)
 			r.Use(apisession.HTTPWithID)
-			r.Post("/{agent}/chat", chatService.Chat)
+			r.Post("/ava", avaHandler.HandleHuman)
+			r.Post("/ava/awaken", avaHandler.HandleSelfAwaken)
+			r.Post("/zee", zeeHandler.HandleHuman)
 		})
 
 		r.Route("/sessions", func(r chi.Router) {
