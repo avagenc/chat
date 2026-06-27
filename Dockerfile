@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o main ./cmd/gateway/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o main ./cmd/http/server.go
 
 FROM gcr.io/distroless/static
 

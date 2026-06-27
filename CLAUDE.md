@@ -108,6 +108,7 @@ Semua route di bawah group middleware `jwtAuthenticator.Authenticate`. User ID t
 
 ### Lain-lain
 
+- **Deklarasi (var, const, type, dsb.) taruh tepat sebelum pertama kali digunakan**, bukan di atas file/fungsi karena terlihat "rapi". Pembaca harus bisa baca dari atas ke bawah tanpa harus scroll ke mana-mana untuk tahu sebuah identifier itu apa.
 - Handler thin: hanya HTTP glue (extract param, map error ke status code)
 - Service layer hanya kalau ada logika bisnis nyata (ownership check, multi-step orchestration)
 - Tidak ada mock testing — integration test untuk behavior, bukan unit test handler
