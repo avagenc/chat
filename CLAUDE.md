@@ -6,11 +6,19 @@ Platform Avagenc Chat. Menerima request dari client, autentikasi via JWT, lalu m
 
 ```
 cmd/http/main.go            — entrypoint, wire-up EKSPLISIT semua dependency (lihat Conventions → Komposisi)
-internal/agent/             — group chat in-process: satu runner per agent di atas Zep thread bersama. run.go = spine (NewRunner, runContext, collect, respondRun, chatIdentity, instruction plugin, embed instruksi); ava.go = slice Ava (ForAva sub-agent adapter + AvaHandler); specialist.go = SpecialistHandler (satu instance per specialist)
+internal/agent/             — group chat in-process: satu runner per agent di atas Zep thread bersama.
+                              instruction.go = konstanta delta key + embed base-instruction.txt + func Instruction()
+                              ava_handler.go = AvaHandler (HandleHuman, HandleSelfAwaken)
+                              ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
+                              specialist_handler.go = SpecialistHandler (HandleHuman)
 internal/identity/          — JWT autentikasi + payment guard middleware
-memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + sentinel per fitur (ErrSessionNotFound, ErrKnowledgeNotFound). Tidak import apa pun yang internal.
-internal/memory/            — HTTP handler + service yang mendorong ports. Vertical slice per fitur: session.go & knowledge.go (handler + service masing-masing); handler.go = spine (Handler, ErrForbidden, query helper, glue postera).
-internal/zep/               — adapter Zep: implement ports di memory/, terjemahkan error not-found Zep ke sentinel memory. Satu-satunya yang import SDK Zep.
+memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + sentinel per fitur
+                              (ErrSessionNotFound, ErrKnowledgeNotFound). Tidak import apa pun yang internal.
+internal/memory/            — HTTP handler + service yang mendorong ports. Vertical slice per fitur:
+                              session.go & knowledge.go (handler + service masing-masing);
+                              handler.go = spine (Handler, ErrForbidden, query helper, glue postera).
+internal/zep/               — adapter Zep: implement ports di memory/, terjemahkan error not-found Zep ke sentinel memory.
+                              Satu-satunya yang import SDK Zep.
 ```
 
 Catatan idiom: `memory/` sengaja public (di luar `internal/`) supaya `internal/zep` bisa
@@ -19,15 +27,23 @@ mengimplementasikannya tanpa ada satu package internal yang mengimport package i
 
 ## Domain
 
-**agent** — group chat in-process. Semua agent menjalankan runner-nya sendiri di atas SATU Zep thread bersama (keyed by `session-id`), jadi human + semua agent baca/tulis satu percakapan. Identitas agent tidak di-bake ke service: assistant turn di-author nama agent masing-masing; speaker inbound (`human`/`ava`) di-set per run lewat context (`runContext`), dibaca `zep.NameFromContext`.
+**agent** — group chat in-process. Semua agent menjalankan runner-nya sendiri (`runner.Runner` dari ADK) di atas SATU Zep thread bersama (keyed by `session-id`), jadi human + semua agent baca/tulis satu percakapan.
 
-Tiga pintu masuk ke thread, tiga framing per-run di atas `SessionInstruction` bersama (semua di-embed dari `.txt`, di-inject lewat before-model plugin yang dipasang `NewRunner`):
+Instruksi disusun tiga lapis via ADK state delta:
+- `base-instruction.txt` — dasar bersama semua agent, di-embed di `instruction.go`, dipakai sebagai `AdditionalInstruction` ke `ava.New` dan `zee.New`.
+- `SessionInstructionDeltaKey` (`temp:sess_instruction`) — ditulis oleh `adkzep.SessionService` per-session (time awareness, message format).
+- `RunInstructionDeltaKey` (`temp:run_instruction`) — framing per-run, di-inject via `runner.WithStateDelta` tiap `runner.Run`.
 
-- `SpecialistHandler.HandleHuman` — human ke specialist langsung (mis. `POST /zee`). Speaker `human`, framing `ranByHuman`.
-- `avaSubAgent.Run` — Ava delegasi ke specialist di dalam run-nya sendiri. Speaker `ava`, framing `ranByAva`.
-- `AvaHandler.HandleSelfAwaken` — Ava dibangunkan postera note-nya sendiri (Cloud Tasks callback, body = raw text). Speaker `ava`, framing `ranByPostera`.
+Empat pintu masuk ke thread:
 
-`AvaHandler.HandleHuman` (human ke Ava) tidak dapat framing per-run: Ava punya behavior group-chat-nya di module-nya sendiri. Ava pemilik self-recall (postera tools), specialist tidak. Route eksplisit per agent — bukan `/{agent}` dispatch.
+- `AvaHandler.HandleHuman` — human ke Ava. Speaker `human`. Tanpa framing per-run (Ava punya behavior group-chat-nya sendiri di module-nya).
+- `AvaHandler.HandleSelfAwaken` — Ava dibangunkan postera note-nya sendiri (Cloud Tasks callback, body = raw text). Speaker `ava`, framing `specialist-ran-by-postera-instruction.txt`.
+- `SpecialistHandler.HandleHuman` — human ke specialist langsung (mis. `POST /zee`). Speaker `human`, framing `specialist-ran-by-human-instruction.txt`.
+- `avaSubAgent.Run` — Ava delegasi ke specialist di dalam run-nya sendiri. Speaker `ava`, framing `specialist-ran-by-ava-instruction.txt`.
+
+Ava pemilik self-recall (postera tools), specialist tidak. `ForAva` mengadaptasi specialist menjadi `ava.SubAgent` — adapter hidup di `ava_subagent.go` karena implementasinya milik sisi konsumen (Ava). Route eksplisit per agent — bukan `/{agent}` dispatch.
+
+Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer wajib drain seluruh iterator. Hanya ambil teks dari `event.IsFinalResponse() && event.Content != nil` — ini selalu event terakhir untuk arsitektur single-agent/tool-based kita. Kalau loop selesai tanpa final response, balas error `502` (atau return error untuk `avaSubAgent.Run`). Error di iterator adalah error infrastruktur — tool call error dikembalikan sebagai FunctionResponse semantic, bukan Go error.
 
 **memory** — satu `Handler` (`internal/memory`) memfront tiga anggota keluarga memory, lewat port provider-agnostic yang di-back oleh Zep (`internal/zep`):
 
@@ -71,28 +87,24 @@ Semua route di bawah group middleware `jwtAuthenticator.Authenticate`. User ID t
 
 ### Komposisi & wiring
 
-- **Wiring EKSPLISIT di consumer (`cmd/.../main.go`), seragam untuk semua fitur.** Dependency
-  dibuat satu per satu di main dan dioper ke konstruktor. Lihat cara `memory` di-wire sebagai
-  acuan; `agent` sekarang mengikuti pola yang sama.
-- **Package cuma menyediakan konstruktor kecil yang MENERIMA dependency sudah-jadi** (`NewRunner`,
-  `NewAvaHandler`, `NewSpecialistHandler`, `ForAva`). DILARANG factory serba-bisa (`Build()`,
-  `Setup()`, `Wire()`) yang bikin dependency-nya sendiri di dalam lalu memuntahkan satu objek jadi.
-  Gejala salah: di main cuma `x := pkg.Build(...)` dan seluruh graf dependency lahir tersembunyi di
-  dalam package.
-- **Tidak ada hidden DI / hidden wiring.** Semua dependency lewat parameter konstruktor, kelihatan
-  di main.
-- **Konstruktor terima interface, bukan tipe konkret**, kalau memungkinkan (mis. `NewRunner` terima
-  `session.Service`/`memory.Service`, bukan tipe `zep` konkret) supaya package lepas dari adapter.
+- **Wiring EKSPLISIT di consumer (`cmd/.../main.go`), seragam untuk semua fitur.** Dependency dibuat satu per satu di main dan dioper ke konstruktor.
+- **Package cuma menyediakan konstruktor kecil yang MENERIMA dependency sudah-jadi** (`NewAvaHandler`, `NewSpecialistHandler`, `ForAva`). DILARANG factory serba-bisa (`Build()`, `Setup()`, `Wire()`) yang bikin dependency-nya sendiri di dalam. Gejala salah: di main cuma `x := pkg.Build(...)` dan seluruh graf dependency lahir tersembunyi di dalam package.
+- **Tidak ada hidden DI / hidden wiring.** Semua dependency lewat parameter konstruktor, kelihatan di main.
+- **Konstruktor terima interface, bukan tipe konkret**, kalau memungkinkan, supaya package lepas dari adapter.
+- **Tidak ada helper/wrapper untuk hal yang sudah simple.** `runner.Run` dipanggil langsung di handler — tidak perlu `respondRun`, `collect`, atau wrapper apapun. Thin = tidak ada lapisan yang tidak menambah nilai.
+
+### File & organisasi
+
+- **Vertical slice per konsep** — satu file = satu konsep lengkap. `ava_handler.go` hanya handler Ava. `ava_subagent.go` hanya adapter sub-agent. `specialist_handler.go` hanya handler specialist. Bukan satu file `ava.go` yang campur aduk.
+- **Adapter hidup di sisi konsumen, bukan sisi yang diadaptasi.** `ForAva` ada di `ava_subagent.go` karena `ava.SubAgent` adalah kontrak Ava — specialist tidak tahu soal Ava.
+- Tidak ada nama file stutter (`pkg/pkg.go`). Pisah file per konsep; package yang punya handler+service diorganisir vertical slice.
+- Doc comment package taruh di file fitur utama, bukan `doc.go` terpisah. Deklarasi lintas-fitur taruh di file spine (mis. `handler.go`, `instruction.go`).
 
 ### Endpoint & handler
 
-- **Satu handler per hal konkret, di-route eksplisit** (`/ava`, `/zee`). DILARANG satu handler
-  generik + `map`/`list` yang dispatch lewat path param (`/{agent}`). Nambah anggota = nambah baris
-  wiring eksplisit di main, bukan nambah entry ke map yang tersembunyi.
-- **Nama jujur & spesifik.** Method = aksi sebenarnya (`HandleHuman`, `HandleSelfAwaken`), BUKAN
-  `Chat()`/`Handle()` generik. Tipe = peran spesifik (`AvaHandler`, `SpecialistHandler`).
-- **Teks instruksi/prompt panjang → `//go:embed` file `.txt` terpisah** (satu file per konsep/
-  channel), bukan const string raksasa di `.go`.
+- **Satu handler per hal konkret, di-route eksplisit** (`/ava`, `/zee`). DILARANG satu handler generik + `map`/`list` yang dispatch lewat path param (`/{agent}`). Nambah anggota = nambah baris wiring eksplisit di main.
+- **Nama jujur & spesifik.** Method = aksi sebenarnya (`HandleHuman`, `HandleSelfAwaken`), BUKAN `Chat()`/`Handle()` generik.
+- **Teks instruksi/prompt → `//go:embed` file `.txt` terpisah**, satu file per konsep/channel.
 
 ### Lain-lain
 
@@ -100,10 +112,4 @@ Semua route di bawah group middleware `jwtAuthenticator.Authenticate`. User ID t
 - Service layer hanya kalau ada logika bisnis nyata (ownership check, multi-step orchestration)
 - Tidak ada mock testing — integration test untuk behavior, bukan unit test handler
 - `go.naturallyfunny.dev/api` menyediakan helper context (user, session, time) dan HTTP utilities
-- Tidak ada nama file stutter (`pkg/pkg.go`, mis. `memory/memory.go`, `zep/zep.go`). Pisah file per
-  konsep (mis. `session.go`, `knowledge.go`); package yang punya handler+service diorganisir vertical
-  slice — tiap file = satu fitur lengkap dengan handler & service-nya.
-- Doc comment package taruh di file fitur utama (mis. `session.go`), bukan `doc.go` terpisah. Deklarasi
-  lintas-fitur (sentinel authz, helper bersama, glue tanpa service) taruh di file spine (mis. `handler.go`).
-- Sentinel error per fitur, bukan satu yang dipakai bersama (mis. `ErrSessionNotFound`,
-  `ErrKnowledgeNotFound`). Adapter terjemahkan error backend ke sentinel; consumer cocokkan via `errors.Is`.
+- Sentinel error per fitur, bukan satu yang dipakai bersama. Adapter terjemahkan error backend ke sentinel; consumer cocokkan via `errors.Is`.
