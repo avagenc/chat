@@ -45,10 +45,13 @@ func (h *SpecialistHandler) HandleHuman(w http.ResponseWriter, r *http.Request) 
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
-	ctx := adkzep.WithSpeakerName(r.Context(), "human")
-	if tz, err := apitime.ZoneFromContext(r.Context()); err == nil && tz != "" {
-		ctx = adkzep.WithTimezone(ctx, tz)
+	tz, err := apitime.ZoneFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
+		return
 	}
+	ctx := adkzep.WithTimezone(r.Context(), tz)
+	ctx = adkzep.WithSpeakerName(ctx, "human")
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,

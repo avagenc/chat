@@ -41,12 +41,22 @@ func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
-	ctx := adkzep.WithSpeakerName(r.Context(), "human")
-	if tz, err := apitime.ZoneFromContext(r.Context()); err == nil && tz != "" {
-		ctx = adkzep.WithTimezone(ctx, tz)
+	tz, err := apitime.ZoneFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
+		return
 	}
+	ctx := adkzep.WithTimezone(r.Context(), tz)
+	ctx = adkzep.WithSpeakerName(ctx, "human")
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
-	runEvents := h.runner.Run(ctx, userID, sessID, msg, adkagent.RunConfig{})
+	runEvents := h.runner.Run(
+		ctx,
+		userID,
+		sessID,
+		msg,
+		adkagent.RunConfig{},
+		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: ""}),
+	)
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
@@ -66,8 +76,8 @@ func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "no final response from agent"})
 }
 
-//go:embed specialist-ran-by-postera-instruction.txt
-var specialistRanByPosteraInstruction string
+//go:embed ava-ran-by-postera-instruction.txt
+var avaRanByPosteraInstruction string
 
 func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
@@ -90,10 +100,13 @@ func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
-	ctx := adkzep.WithSpeakerName(r.Context(), "ava")
-	if tz, err := apitime.ZoneFromContext(r.Context()); err == nil && tz != "" {
-		ctx = adkzep.WithTimezone(ctx, tz)
+	tz, err := apitime.ZoneFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
+		return
 	}
+	ctx := adkzep.WithTimezone(r.Context(), tz)
+	ctx = adkzep.WithSpeakerName(ctx, "ava")
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,
@@ -101,7 +114,7 @@ func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: specialistRanByPosteraInstruction}),
+		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: avaRanByPosteraInstruction}),
 	)
 	for event, err := range runEvents {
 		if err != nil {

@@ -24,7 +24,7 @@ type avaSubAgent struct {
 
 var _ ava.SubAgent = (*avaSubAgent)(nil)
 
-func ForAva(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
+func ToAvaSubAgent(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
 	return &avaSubAgent{name: a.Name(), description: a.Description(), runner: r}
 }
 
@@ -43,10 +43,12 @@ func (s *avaSubAgent) Run(ctx context.Context, message string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: session identity: %w", s.name, err)
 	}
-	ctx = adkzep.WithSpeakerName(ctx, "ava")
-	if tz, err := apitime.ZoneFromContext(ctx); err == nil && tz != "" {
-		ctx = adkzep.WithTimezone(ctx, tz)
+	tz, err := apitime.ZoneFromContext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("subagent %s: timezone: %w", s.name, err)
 	}
+	ctx = adkzep.WithTimezone(ctx, tz)
+	ctx = adkzep.WithSpeakerName(ctx, "ava")
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := s.runner.Run(
 		ctx,
