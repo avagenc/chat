@@ -60,7 +60,7 @@ func main() {
 	if geminiAPIKey == "" {
 		log.Fatal("fatal: GEMINI_API_KEY is required")
 	}
-	agentModel, err := gemini.NewModel(context.Background(), "gemini-3.5-flash", &genai.ClientConfig{
+	agentModel, err := gemini.NewModel(context.Background(), "gemini-3-flash-preview", &genai.ClientConfig{
 		APIKey: geminiAPIKey,
 	})
 	if err != nil {
