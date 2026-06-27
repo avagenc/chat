@@ -1,11 +1,17 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.25-alpine AS builder
-
-WORKDIR /app
 
 RUN apk add --no-cache git
 
+ENV GOPRIVATE=go.avagenc.com/*
+
+WORKDIR /app
+
 COPY go.mod go.sum ./
-RUN go mod download
+
+RUN --mount=type=secret,id=gh_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf "https://github.com/" \
+    && go mod download
 
 COPY . .
 
