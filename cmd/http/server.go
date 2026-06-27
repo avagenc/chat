@@ -40,6 +40,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("info: .env file not found, using system environment variables")
 	}
+	// 1. Agent
+	// 1. 0. ADK Session Service
 	zepAPIKey := os.Getenv("ZEP_API_KEY")
 	if zepAPIKey == "" {
 		log.Fatal("fatal: ZEP_API_KEY is required")
@@ -172,16 +174,24 @@ func main() {
 		cloudTasksQueueID,
 		posteracloudtasks.WithTargetURL(hostURL+avaAwakenEndpoint),
 		posteracloudtasks.WithServiceAccountEmail(gcpRuntimeSAEmail),
+		posteracloudtasks.WithHumanHeader("user-id"),
+		posteracloudtasks.WithSessionHeader("session-id"),
+		posteracloudtasks.WithMetadataHeader("timezone", "time-zone"),
 	)
 	if err != nil {
 		log.Fatalf("fatal: init postera enqueuer: %v", err)
 	}
-	postarius := postera.New(
+	postarius, err := postera.New(
 		posteraStore,
 		posteraEnqueuer,
 		postera.WithHumanFromContext(apiuser.ContextKey),
 		postera.WithTimezoneFromContext(apitime.ContextKey),
+		postera.WithSessionFromContext(apisession.ContextKey),
+		postera.WithMetadataEntryFromContext("timezone", apitime.ContextKey),
 	)
+	if err != nil {
+		log.Fatalf("fatal: init postarius: %v", err)
+	}
 	// 1. 4. 1. Sub Agent
 	zeeAvaSubAgent := agent.ToAvaSubAgent(zeeAgent, zeeRunner)
 	// 1. 4. 2. ADK Agent

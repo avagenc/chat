@@ -93,8 +93,8 @@ go.naturallyfunny.dev/adk v1.24.0 h1:01wvz3wGD8uPebshNsHAfHfIkY3etuqnPtYApfGw8mQ
 go.naturallyfunny.dev/adk v1.24.0/go.mod h1:EL3K4YtZSUQOo+/RFQvb1XM4sz2rADHR/51cXxAZ5kI=
 go.naturallyfunny.dev/api v1.15.0 h1:gEnuFAAMpbWK2T+YDdqTdKe6dHmXEAUP8QCIZm+WAuQ=
 go.naturallyfunny.dev/api v1.15.0/go.mod h1:l8a+fA+ze+Y7m+QE0w6e8wyh/N3pvvE90R1WEqDMGYM=
-go.naturallyfunny.dev/postera v0.18.0 h1:fvC7sOoYX6fWUR8hk19Ts2/j0lw0wAUgNiWvDz52unc=
-go.naturallyfunny.dev/postera v0.18.0/go.mod h1:eghaqCsdszrpGcR0tY0HcPzla+g4ZF+ItJ7EOQ5ttQk=
+go.naturallyfunny.dev/postera v0.21.1 h1:o9AzHlXoBGU8F6+S10rHKfZpPPnGUt9LS3lVsMRo9Zs=
+go.naturallyfunny.dev/postera v0.21.1/go.mod h1:eghaqCsdszrpGcR0tY0HcPzla+g4ZF+ItJ7EOQ5ttQk=
 go.naturallyfunny.dev/tuya v0.3.0 h1:Fh2HcQzBYz508eLQi+Sj5ZxHY7GEnJkpRmn64MsSii0=
 go.naturallyfunny.dev/tuya v0.3.0/go.mod h1:htXIjpUlCfrj6LjuasVkB0Z2Z2AJZXbWKREdtz8afaw=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

@@ -15,7 +15,7 @@ require (
 	go.avagenc.com/zee v0.5.0
 	go.naturallyfunny.dev/adk v1.24.0
 	go.naturallyfunny.dev/api v1.15.0
-	go.naturallyfunny.dev/postera v0.18.0
+	go.naturallyfunny.dev/postera v0.21.1
 	go.naturallyfunny.dev/tuya v0.3.0
 	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.58.0
