@@ -48,10 +48,10 @@ func main() {
 	}
 	zepClient := zepclient.NewClient(zepoption.WithAPIKey(zepAPIKey))
 	agentSessSvc := adkzep.NewSessionService(zepClient,
-		adkzep.WithSpeakerResolver(adkzep.NameFromContext()),
+		adkzep.WithSpeakerResolver(adkzep.SpeakerFromContext()),
 		adkzep.WithInstruction(agent.SessionInstructionDeltaKey),
 		adkzep.WithMessageHistoryLength(16),
-		adkzep.WithTimeHarness(adkzep.ZoneFromContext()),
+		adkzep.WithTimeHarness(adkzep.TZFromContext()),
 	)
 	// 1. 1. ADK Memory Service
 	agentMemSvc := adkzep.NewMemoryService(zepClient)
@@ -217,7 +217,6 @@ func main() {
 	}
 	// 1. 4. 4. HTTP Handler
 	avaHandler := agent.NewAvaHandler(avaRunner)
-
 	// 2. MEMORY
 	// 2. 0. Service
 	// 2. 0. 1. Session

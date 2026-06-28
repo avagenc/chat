@@ -51,7 +51,7 @@ func (h *SpecialistHandler) HandleHuman(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ctx := adkzep.WithTimezone(r.Context(), tz)
-	ctx = adkzep.WithSpeakerName(ctx, "human")
+	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,

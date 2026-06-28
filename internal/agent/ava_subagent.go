@@ -48,7 +48,7 @@ func (s *avaSubAgent) Run(ctx context.Context, message string) (string, error) {
 		return "", fmt.Errorf("subagent %s: timezone: %w", s.name, err)
 	}
 	ctx = adkzep.WithTimezone(ctx, tz)
-	ctx = adkzep.WithSpeakerName(ctx, "ava")
+	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "ava"})
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := s.runner.Run(
 		ctx,

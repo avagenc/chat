@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apisess "go.naturallyfunny.dev/api/session"
@@ -47,7 +48,7 @@ func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := adkzep.WithTimezone(r.Context(), tz)
-	ctx = adkzep.WithSpeakerName(ctx, "human")
+	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,
@@ -106,7 +107,7 @@ func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := adkzep.WithTimezone(r.Context(), tz)
-	ctx = adkzep.WithSpeakerName(ctx, "ava")
+	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "ava", Role: zep.RoleTypeSystemRole})
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,
