@@ -87,8 +87,12 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 go.avagenc.com/ava v0.5.0 h1:T62ZDQKwfV8LLi2EPx05ZGOytVXar3RPml+Z2BqWIgY=
 go.avagenc.com/ava v0.5.0/go.mod h1:vNj8AC3eWUB8XnG5w6tv8iJ8BThaVUrqGxLtmNxWOCM=
+go.avagenc.com/ava v0.6.0 h1:MZh1KHbvgU16ow094Fw4ySmJpEjUbkJWtsn5CMp/W6g=
+go.avagenc.com/ava v0.6.0/go.mod h1:vNj8AC3eWUB8XnG5w6tv8iJ8BThaVUrqGxLtmNxWOCM=
 go.avagenc.com/zee v0.5.0 h1:Zn5LEhOLQNZctddiit8QQUIJvrji8u74Z28kXLKhUuI=
 go.avagenc.com/zee v0.5.0/go.mod h1:bDgnqdvFTML592czt48Ta6TW3R8AD5V/5Kt+RvhH+9M=
+go.avagenc.com/zee v0.6.0 h1:gzDh6JnoVZpdu1c0EfCwoKj42a73X6IpGpc9NP8n14Y=
+go.avagenc.com/zee v0.6.0/go.mod h1:bDgnqdvFTML592czt48Ta6TW3R8AD5V/5Kt+RvhH+9M=
 go.naturallyfunny.dev/adk v1.25.0 h1:fFP/1QOXodGmDb6YM5kHEZD8BbE27jyUreGHYScdF98=
 go.naturallyfunny.dev/adk v1.25.0/go.mod h1:EL3K4YtZSUQOo+/RFQvb1XM4sz2rADHR/51cXxAZ5kI=
 go.naturallyfunny.dev/api v1.15.0 h1:gEnuFAAMpbWK2T+YDdqTdKe6dHmXEAUP8QCIZm+WAuQ=

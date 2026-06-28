@@ -11,8 +11,8 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.17.3
-	go.avagenc.com/ava v0.5.0
-	go.avagenc.com/zee v0.5.0
+	go.avagenc.com/ava v0.6.0
+	go.avagenc.com/zee v0.6.0
 	go.naturallyfunny.dev/adk v1.25.0
 	go.naturallyfunny.dev/api v1.15.0
 	go.naturallyfunny.dev/postera v0.21.1
