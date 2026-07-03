@@ -74,3 +74,4 @@ jobs:
             TUYA_ACCESS_SECRET=${{ secrets.TUYA_ACCESS_SECRET }}
             ZEE_DB_URL=${{ secrets.ZEE_DB_URL }}
             POSTERA_DB_URL=${{ secrets.POSTERA_DB_URL }}
+            FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
