@@ -1,8 +1,9 @@
 // Package memory defines the gateway's memory domain as pure ports and types:
 // episodic memory (SessionStore, session.go) and semantic memory (KnowledgeStore,
 // knowledge.go). It is provider-agnostic and imports nothing internal, so it can
-// be public: internal/zep implements these ports and internal/memory drives them,
-// neither importing the other. Each port carries its own not-found sentinel
+// be public: adapters live beside it as subpackages (memory/zep implements the
+// ports) and internal/memory drives them, neither importing the other. Each
+// port carries its own not-found sentinel
 // (ErrSessionNotFound, ErrKnowledgeNotFound) that an adapter translates its
 // backend error into and consumers match with errors.Is.
 package memory

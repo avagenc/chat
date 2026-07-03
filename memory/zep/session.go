@@ -1,7 +1,9 @@
-// Package zep implements the memory domain's ports on top of Zep. It is the only
-// package that imports the Zep SDK, mapping Zep's types and not-found errors onto
-// the memory package's. Swapping providers means writing a sibling adapter, not
-// editing memory.
+// Package zep implements the parent memory package's ports on top of Zep,
+// mapping Zep's types and not-found errors onto memory's. It lives beside its
+// contract: memory + memory/zep travel together as one provider-agnostic unit,
+// and swapping providers means writing a sibling adapter under memory, not
+// editing memory itself. (The agent side has its own Zep surface, adkzep —
+// this package only covers the memory domain.)
 package zep
 
 import (

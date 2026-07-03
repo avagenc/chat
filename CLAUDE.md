@@ -12,21 +12,26 @@ internal/agent/             — group chat in-process: satu runner per agent di 
                               ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
                               specialist_handler.go = SpecialistHandler (HandleHuman)
 internal/identity/          — Firebase autentikasi + payment guard middleware
-internal/linking/           — user connect/disconnect akun eksternal. Vertical slice per integrasi:
-                              gworkspace.go = GworkspaceHandler (HandleAuthURL, HandleConnect,
-                              HandleDisconnect) + state HMAC (signState/verifyState).
+internal/linking/           — user connect/disconnect akun eksternal. SATU SUBPACKAGE PER INTEGRASI;
+                              root sengaja tanpa file .go sampai ada shared code nyata lintas integrasi
+                              (jangan asumsikan semua integrasi OAuth — yang shared ditemukan, bukan diramal).
+internal/linking/gworkspace — linking Google Workspace: handler.go (Handler: HandleAuthURL, HandleConnect,
+                              HandleDisconnect) + state.go (OAuth state HMAC: signState/verifyState).
 memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + sentinel per fitur
                               (ErrSessionNotFound, ErrKnowledgeNotFound). Tidak import apa pun yang internal.
+memory/zep/                 — adapter Zep: implement ports memory/, terjemahkan error not-found Zep ke sentinel
+                              memory. Pintu SDK Zep untuk domain memory (sisi agent punya jalurnya sendiri: adkzep).
 internal/memory/            — HTTP handler + service yang mendorong ports. Vertical slice per fitur:
                               session.go & knowledge.go (handler + service masing-masing);
                               handler.go = spine (Handler, ErrForbidden, query helper, glue postera).
-internal/zep/               — adapter Zep: implement ports di memory/, terjemahkan error not-found Zep ke sentinel memory.
-                              Satu-satunya yang import SDK Zep.
 ```
 
-Catatan idiom: `memory/` sengaja public (di luar `internal/`) supaya `internal/zep` bisa
-mengimplementasikannya tanpa ada satu package internal yang mengimport package internal lain.
-`internal/memory` dan `internal/zep` sama-sama hanya bergantung pada `memory/`, bukan satu sama lain.
+Catatan idiom: `memory/` sengaja public (di luar `internal/`) — keluarga memory (kontrak + adapter
+`memory/zep`, pola `image` + `image/png`) adalah unit self-contained yang portable; `internal/` murni
+app glue. `memory/zep` dan `internal/memory` sama-sama hanya bergantung pada `memory/`, bukan satu
+sama lain. Aturan penempatan package: package tinggal di samping hal yang MENDEFINISIKAN TUJUANNYA —
+adapter zep di samping kontrak memory yang dia implement; handler linking gworkspace di bawah
+`internal/linking` karena tujuannya fitur linking app ini.
 
 ## Domain
 
@@ -48,7 +53,7 @@ Ava pemilik self-recall (postera tools), specialist tidak. `ForAva` mengadaptasi
 
 Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer wajib drain seluruh iterator. Hanya ambil teks dari `event.IsFinalResponse() && event.Content != nil` — ini selalu event terakhir untuk arsitektur single-agent/tool-based kita. Kalau loop selesai tanpa final response, balas error `502` (atau return error untuk `avaSubAgent.Run`). Error di iterator adalah error infrastruktur — tool call error dikembalikan sebagai FunctionResponse semantic, bukan Go error.
 
-**memory** — satu `Handler` (`internal/memory`) memfront tiga anggota keluarga memory, lewat port provider-agnostic yang di-back oleh Zep (`internal/zep`):
+**memory** — satu `Handler` (`internal/memory`) memfront tiga anggota keluarga memory, lewat port provider-agnostic yang di-back oleh Zep (`memory/zep`):
 
 - *episodic* — sessions, lewat `SessionService`. Ada ownership check manual (`Get` thread → bandingkan `UserID` → baru `Delete`) karena `sessionID` dari URL bisa milik siapa saja.
 - *semantic* — knowledge graph, lewat `KnowledgeService`. Tidak butuh ownership check karena operasi sudah di-scope ke `userID` dari JWT (`GetByUserID`, `User.Delete`).

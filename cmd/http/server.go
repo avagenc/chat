@@ -14,9 +14,9 @@ import (
 	internalava "github.com/avagenc/chat/internal/agent/ava"
 	"github.com/avagenc/chat/internal/agent/specialist"
 	"github.com/avagenc/chat/internal/identity"
-	"github.com/avagenc/chat/internal/linking"
+	gworkspacelink "github.com/avagenc/chat/internal/linking/gworkspace"
 	"github.com/avagenc/chat/internal/memory"
-	internalzep "github.com/avagenc/chat/internal/zep"
+	memoryzep "github.com/avagenc/chat/memory/zep"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/go-chi/chi/v5"
@@ -281,14 +281,14 @@ func main() {
 	if gworkspaceStateSecret == "" {
 		log.Fatal("fatal: GWORKSPACE_STATE_SECRET is required")
 	}
-	gworkspaceLinkHandler := linking.NewGworkspaceHandler(gworkspaceClient, []byte(gworkspaceStateSecret))
+	gworkspaceLinkHandler := gworkspacelink.NewHandler(gworkspaceClient, []byte(gworkspaceStateSecret))
 	// 3. MEMORY
 	// 3. 0. Service
 	// 3. 0. 1. Session
-	memorySessStore := internalzep.NewSessionStore(zepClient)
+	memorySessStore := memoryzep.NewSessionStore(zepClient)
 	memorySessSvc := memory.NewSessionService(memorySessStore)
 	// 3. 0. 2. Knowledge
-	memoryKnowledgeStore := internalzep.NewKnowledgeStore(zepClient)
+	memoryKnowledgeStore := memoryzep.NewKnowledgeStore(zepClient)
 	memoryKnowledgeSvc := memory.NewKnowledgeService(memoryKnowledgeStore)
 	// 3. 0. 3. Postera
 	// Postarius is made in ava wiring
