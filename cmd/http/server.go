@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
+	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
 	"github.com/avagenc/chat/internal/agent"
 	internalava "github.com/avagenc/chat/internal/agent/ava"
@@ -22,18 +23,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.avagenc.com/ava"
+	"go.avagenc.com/rafal"
 	"go.avagenc.com/zee"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apisession "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
+	"go.naturallyfunny.dev/gworkspace"
+	gworkspacefirestore "go.naturallyfunny.dev/gworkspace/firestore"
 	"go.naturallyfunny.dev/postera"
 	posteracloudtasks "go.naturallyfunny.dev/postera/cloudtasks"
 	posterapostgres "go.naturallyfunny.dev/postera/postgres"
 	"go.naturallyfunny.dev/tuya"
 	"go.naturallyfunny.dev/tuya/cloud"
-	tuyapostgres "go.naturallyfunny.dev/tuya/postgres"
+	tuyafirestore "go.naturallyfunny.dev/tuya/firestore"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/adk/model/gemini"
 	"google.golang.org/adk/runner"
 	"google.golang.org/genai"
@@ -90,23 +96,22 @@ func main() {
 		log.Fatalf("fatal: build tuya cloud client: %v", err)
 	}
 	tuyaIoTClient := cloud.NewIoT(tuyaCloudClient)
-	zeeDBURL := os.Getenv("ZEE_DB_URL")
-	if zeeDBURL == "" {
-		log.Fatal("fatal: ZEE_DB_URL is required")
+	gcpProjectID := os.Getenv("GCP_PROJECT_ID")
+	if gcpProjectID == "" {
+		log.Fatal("fatal: GCP_PROJECT_ID is required")
 	}
-	zeeDBPool, err := pgxpool.New(context.Background(), zeeDBURL)
+	firestoreDatabaseID := os.Getenv("FIRESTORE_DATABASE_ID")
+	if firestoreDatabaseID == "" {
+		log.Fatal("fatal: FIRESTORE_DATABASE_ID is required")
+	}
+	// One Firestore client, shared by every store backed by it (tuya accounts,
+	// gworkspace tokens).
+	firestoreClient, err := firestore.NewClientWithDatabase(context.Background(), gcpProjectID, firestoreDatabaseID)
 	if err != nil {
-		log.Fatalf("fatal: init tuya db pool: %v", err)
+		log.Fatalf("fatal: init firestore client: %v", err)
 	}
-	defer zeeDBPool.Close()
-	tuyaAccountStore, err := tuyapostgres.NewAccountStore(
-		context.Background(),
-		zeeDBPool,
-		tuyapostgres.WithAutoMigrate(),
-	)
-	if err != nil {
-		log.Fatalf("fatal: init tuya account store: %v", err)
-	}
+	defer firestoreClient.Close()
+	tuyaAccountStore := tuyafirestore.NewAccountStore(firestoreClient, tuyafirestore.WithCollection("tuya_accounts"))
 	tuyaAppClient := tuya.New(tuyaIoTClient, tuyaAccountStore)
 	// 1. 3. 1. ADK Agent
 	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppClient, AdditionalInstruction: agent.Instruction()})
@@ -127,8 +132,49 @@ func main() {
 	}
 	// 1. 3. 3. HTTP Handler
 	zeeHandler := specialist.NewHandler(zeeRunner)
-	// 1. 4. Ava
-	// 1. 4. 0. Postera
+	// 1. 4. Rafal
+	// 1. 4. 0. Google Workspace Client
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if googleClientID == "" {
+		log.Fatal("fatal: GOOGLE_CLIENT_ID is required")
+	}
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if googleClientSecret == "" {
+		log.Fatal("fatal: GOOGLE_CLIENT_SECRET is required")
+	}
+	gworkspaceTokenStore := gworkspacefirestore.NewTokenStore(firestoreClient, gworkspacefirestore.WithCollection("gworkspace_tokens"))
+	// One OAuth refresh token spans Calendar, Gmail, and Contacts — the client
+	// must carry the union of all three scope sets (rafal checks this at build).
+	gworkspaceScopes := make([]string, 0, len(gworkspace.CalendarRequiredScopes)+len(gworkspace.GmailRequiredScopes)+len(gworkspace.ContactsRequiredScopes))
+	gworkspaceScopes = append(gworkspaceScopes, gworkspace.CalendarRequiredScopes...)
+	gworkspaceScopes = append(gworkspaceScopes, gworkspace.GmailRequiredScopes...)
+	gworkspaceScopes = append(gworkspaceScopes, gworkspace.ContactsRequiredScopes...)
+	gworkspaceClient := gworkspace.NewClient(gworkspaceTokenStore, &oauth2.Config{
+		ClientID:     googleClientID,
+		ClientSecret: googleClientSecret,
+		Endpoint:     google.Endpoint,
+		Scopes:       gworkspaceScopes,
+	})
+	// 1. 4. 1. ADK Agent
+	rafalAgent, err := rafal.New(rafal.Config{Model: agentModel, WorkspaceClient: gworkspaceClient, AdditionalInstruction: agent.Instruction()})
+	if err != nil {
+		log.Fatalf("fatal: build rafal agent: %v", err)
+	}
+	// 1. 4. 2. ADK Runner
+	rafalRunner, err := runner.New(runner.Config{
+		AppName:           appName,
+		Agent:             rafalAgent,
+		SessionService:    agentSessSvc,
+		MemoryService:     agentMemSvc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		log.Fatalf("fatal: build rafal runner: %v", err)
+	}
+	// 1. 4. 3. HTTP Handler
+	rafalHandler := specialist.NewHandler(rafalRunner)
+	// 1. 5. Ava
+	// 1. 5. 0. Postera
 	posteraDBURL := os.Getenv("POSTERA_DB_URL")
 	if posteraDBURL == "" {
 		log.Fatal("fatal: POSTERA_DB_URL is required")
@@ -145,10 +191,6 @@ func main() {
 	)
 	if err != nil {
 		log.Fatalf("fatal: init postera store: %v", err)
-	}
-	gcpProjectID := os.Getenv("GCP_PROJECT_ID")
-	if gcpProjectID == "" {
-		log.Fatal("fatal: GCP_PROJECT_ID is required")
 	}
 	cloudTasksLocationID := os.Getenv("CLOUD_TASKS_LOCATION_ID")
 	if cloudTasksLocationID == "" {
@@ -197,19 +239,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: init postarius: %v", err)
 	}
-	// 1. 4. 1. Sub Agent
+	// 1. 5. 1. Sub Agents
 	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner)
-	// 1. 4. 2. ADK Agent
+	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner)
+	// 1. 5. 2. ADK Agent
 	avaAgent, err := ava.New(ava.Config{
 		Model:                 agentModel,
 		Postarius:             postarius,
-		SubAgents:             []ava.SubAgent{zeeAvaSubAgent},
+		SubAgents:             []ava.SubAgent{zeeAvaSubAgent, rafalAvaSubAgent},
 		AdditionalInstruction: agent.Instruction(),
 	})
 	if err != nil {
 		log.Fatalf("fatal: build ava agent: %v", err)
 	}
-	// 1. 4. 3. ADK Runner
+	// 1. 5. 3. ADK Runner
 	avaRunner, err := runner.New(runner.Config{
 		AppName:           appName,
 		Agent:             avaAgent,
@@ -220,7 +263,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build ava runner: %v", err)
 	}
-	// 1. 4. 4. HTTP Handler
+	// 1. 5. 4. HTTP Handler
 	avaHandler := internalava.NewHandler(avaRunner)
 	// 2. MEMORY
 	// 2. 0. Service
@@ -288,19 +331,21 @@ func main() {
 			r.Post("/ava", avaHandler.HandleHuman)
 			// 3. 2. 1. Zee
 			r.Post("/zee", zeeHandler.HandleHuman)
+			// 3. 2. 2. Rafal
+			r.Post("/rafal", rafalHandler.HandleHuman)
 		})
-		// 3. 2. 2. Memory
-		// 3. 2. 2. 0. Session
+		// 3. 2. 3. Memory
+		// 3. 2. 3. 0. Session
 		r.Route("/sessions", func(r chi.Router) {
 			r.Get("/{session-id}/messages", memoryHandler.GetMessages)
 			r.Delete("/{session-id}/messages", memoryHandler.ClearMessages)
 		})
-		// 3. 2. 2. 1. Knowledge
+		// 3. 2. 3. 1. Knowledge
 		r.Route("/knowledge", func(r chi.Router) {
 			r.Get("/", memoryHandler.GetKnowledge)
 			r.Delete("/", memoryHandler.DeleteKnowledge)
 		})
-		// 3. 2. 2. 2. Postera
+		// 3. 2. 3. 2. Postera
 		r.Route("/postera", func(r chi.Router) {
 			r.Get("/", memoryHandler.ListUpcoming)
 			r.Delete("/{posterum-id}", memoryHandler.Cancel)

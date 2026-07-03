@@ -30,7 +30,7 @@ mengimplementasikannya tanpa ada satu package internal yang mengimport package i
 **agent** — group chat in-process. Semua agent menjalankan runner-nya sendiri (`runner.Runner` dari ADK) di atas SATU Zep thread bersama (keyed by `session-id`), jadi human + semua agent baca/tulis satu percakapan.
 
 Instruksi disusun tiga lapis via ADK state delta:
-- `base-instruction.txt` — dasar bersama semua agent, di-embed di `instruction.go`, dipakai sebagai `AdditionalInstruction` ke `ava.New` dan `zee.New`.
+- `base-instruction.txt` — dasar bersama semua agent, di-embed di `instruction.go`, dipakai sebagai `AdditionalInstruction` ke `ava.New`, `zee.New`, dan `rafal.New`.
 - `SessionInstructionDeltaKey` (`temp:sess_instruction`) — ditulis oleh `adkzep.SessionService` per-session (time awareness, message format).
 - `RunInstructionDeltaKey` (`temp:run_instruction`) — framing per-run, di-inject via `runner.WithStateDelta` tiap `runner.Run`.
 
@@ -38,7 +38,7 @@ Empat pintu masuk ke thread:
 
 - `AvaHandler.HandleHuman` — human ke Ava. Speaker `human`. Tanpa framing per-run (Ava punya behavior group-chat-nya sendiri di module-nya).
 - `AvaHandler.HandleSelfAwaken` — Ava dibangunkan postera note-nya sendiri (Cloud Tasks callback, body = raw text). Speaker `ava`, framing `specialist-ran-by-postera-instruction.txt`.
-- `SpecialistHandler.HandleHuman` — human ke specialist langsung (mis. `POST /zee`). Speaker `human`, framing `specialist-ran-by-human-instruction.txt`.
+- `SpecialistHandler.HandleHuman` — human ke specialist langsung (mis. `POST /zee`, `POST /rafal`). Speaker `human`, framing `specialist-ran-by-human-instruction.txt`.
 - `avaSubAgent.Run` — Ava delegasi ke specialist di dalam run-nya sendiri. Speaker `ava`, framing `specialist-ran-by-ava-instruction.txt`.
 
 Ava pemilik self-recall (postera tools), specialist tidak. `ForAva` mengadaptasi specialist menjadi `ava.SubAgent` — adapter hidup di `ava_subagent.go` karena implementasinya milik sisi konsumen (Ava). Route eksplisit per agent — bukan `/{agent}` dispatch.
@@ -72,9 +72,10 @@ Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User 
 | `ZEP_API_KEY` | API key Zep |
 | `GEMINI_API_KEY` | API key model Gemini (LLM roster) |
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
-| `ZEE_DB_URL` | PostgreSQL untuk account store Tuya (zee) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal) — refresh token user di-resolve lewat client ini |
+| `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`) & token gworkspace (`gworkspace_tokens`) |
 | `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
-| `GCP_PROJECT_ID` | GCP project ID |
+| `GCP_PROJECT_ID` | GCP project ID (Cloud Tasks, Firestore) |
 | `CLOUD_TASKS_LOCATION_ID` | Cloud Tasks location |
 | `CLOUD_TASKS_QUEUE_ID` | Cloud Tasks queue ID |
 | `APP_ENV` | `production` atau `development` |
