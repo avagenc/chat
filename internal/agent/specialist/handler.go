@@ -1,4 +1,4 @@
-package agent
+package specialist
 
 import (
 	_ "embed"
@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/avagenc/chat/internal/agent"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apisess "go.naturallyfunny.dev/api/session"
@@ -16,18 +17,18 @@ import (
 	"google.golang.org/genai"
 )
 
-type SpecialistHandler struct {
+type handler struct {
 	runner *runner.Runner
 }
 
-func NewSpecialistHandler(r *runner.Runner) *SpecialistHandler {
-	return &SpecialistHandler{runner: r}
+func NewHandler(r *runner.Runner) *handler {
+	return &handler{runner: r}
 }
 
 //go:embed specialist-ran-by-human-instruction.txt
 var specialistRanByHumanInstruction string
 
-func (h *SpecialistHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -59,7 +60,7 @@ func (h *SpecialistHandler) HandleHuman(w http.ResponseWriter, r *http.Request) 
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: specialistRanByHumanInstruction}),
+		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByHumanInstruction}),
 	)
 	for event, err := range runEvents {
 		if err != nil {

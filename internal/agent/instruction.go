@@ -7,7 +7,7 @@ import (
 const SessionInstructionDeltaKey string = "sess_instruction"
 const RunInstructionDeltaKey string = "run_instruction"
 
-//go:embed base-instruction.txt
+//go:embed instruction.txt
 var baseInstruction string
 
 func Instruction() string {

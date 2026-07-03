@@ -9,6 +9,8 @@ import (
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
 	"github.com/avagenc/chat/internal/agent"
+	internalava "github.com/avagenc/chat/internal/agent/ava"
+	"github.com/avagenc/chat/internal/agent/specialist"
 	"github.com/avagenc/chat/internal/memory"
 	internalzep "github.com/avagenc/chat/internal/zep"
 	zepclient "github.com/getzep/zep-go/v3/client"
@@ -47,7 +49,8 @@ func main() {
 		log.Fatal("fatal: ZEP_API_KEY is required")
 	}
 	zepClient := zepclient.NewClient(zepoption.WithAPIKey(zepAPIKey))
-	agentSessSvc := adkzep.NewSessionService(zepClient,
+	agentSessSvc := adkzep.NewSessionService(
+		zepClient,
 		adkzep.WithSpeakerResolver(adkzep.SpeakerFromContext()),
 		adkzep.WithInstruction(agent.SessionInstructionDeltaKey),
 		adkzep.WithMessageHistoryLength(16),
@@ -121,7 +124,7 @@ func main() {
 		log.Fatalf("fatal: build zee runner: %v", err)
 	}
 	// 1. 3. 3. HTTP Handler
-	zeeHandler := agent.NewSpecialistHandler(zeeRunner)
+	zeeHandler := specialist.NewHandler(zeeRunner)
 	// 1. 4. Ava
 	// 1. 4. 0. Postera
 	posteraDBURL := os.Getenv("POSTERA_DB_URL")
@@ -193,7 +196,7 @@ func main() {
 		log.Fatalf("fatal: init postarius: %v", err)
 	}
 	// 1. 4. 1. Sub Agent
-	zeeAvaSubAgent := agent.ToAvaSubAgent(zeeAgent, zeeRunner)
+	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner)
 	// 1. 4. 2. ADK Agent
 	avaAgent, err := ava.New(ava.Config{
 		Model:                 agentModel,
@@ -216,7 +219,7 @@ func main() {
 		log.Fatalf("fatal: build ava runner: %v", err)
 	}
 	// 1. 4. 4. HTTP Handler
-	avaHandler := agent.NewAvaHandler(avaRunner)
+	avaHandler := internalava.NewHandler(avaRunner)
 	// 2. MEMORY
 	// 2. 0. Service
 	// 2. 0. 1. Session

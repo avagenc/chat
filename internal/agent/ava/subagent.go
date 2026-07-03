@@ -1,4 +1,4 @@
-package agent
+package ava
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.avagenc.com/ava"
+	"github.com/avagenc/chat/internal/agent"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
@@ -16,25 +17,25 @@ import (
 	"google.golang.org/genai"
 )
 
-type avaSubAgent struct {
+type subAgent struct {
 	name        string
 	description string
 	runner      *runner.Runner
 }
 
-var _ ava.SubAgent = (*avaSubAgent)(nil)
+var _ ava.SubAgent = (*subAgent)(nil)
 
-func ToAvaSubAgent(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
-	return &avaSubAgent{name: a.Name(), description: a.Description(), runner: r}
+func NewSubAgent(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
+	return &subAgent{name: a.Name(), description: a.Description(), runner: r}
 }
 
-func (s *avaSubAgent) Name() string        { return s.name }
-func (s *avaSubAgent) Description() string { return s.description }
+func (s *subAgent) Name() string        { return s.name }
+func (s *subAgent) Description() string { return s.description }
 
 //go:embed specialist-ran-by-ava-instruction.txt
 var specialistRanByAvaInstruction string
 
-func (s *avaSubAgent) Run(ctx context.Context, message string) (string, error) {
+func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 	userID, err := apiuser.IDFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: user identity: %w", s.name, err)
@@ -56,7 +57,7 @@ func (s *avaSubAgent) Run(ctx context.Context, message string) (string, error) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: specialistRanByAvaInstruction}),
+		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByAvaInstruction}),
 	)
 	for event, err := range runEvents {
 		if err != nil {

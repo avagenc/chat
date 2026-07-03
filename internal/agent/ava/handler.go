@@ -1,4 +1,4 @@
-package agent
+package ava
 
 import (
 	_ "embed"
@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/avagenc/chat/internal/agent"
 	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
@@ -18,13 +19,13 @@ import (
 	"google.golang.org/genai"
 )
 
-type AvaHandler struct {
+type handler struct {
 	runner *runner.Runner
 }
 
-func NewAvaHandler(r *runner.Runner) *AvaHandler { return &AvaHandler{runner: r} }
+func NewHandler(r *runner.Runner) *handler { return &handler{runner: r} }
 
-func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -56,7 +57,7 @@ func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: ""}),
+		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: ""}),
 	)
 	for event, err := range runEvents {
 		if err != nil {
@@ -80,7 +81,7 @@ func (h *AvaHandler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 //go:embed ava-ran-by-postera-instruction.txt
 var avaRanByPosteraInstruction string
 
-func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
+func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "failed to read body"})
@@ -115,7 +116,7 @@ func (h *AvaHandler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{RunInstructionDeltaKey: avaRanByPosteraInstruction}),
+		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: avaRanByPosteraInstruction}),
 	)
 	for event, err := range runEvents {
 		if err != nil {
