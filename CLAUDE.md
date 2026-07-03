@@ -11,7 +11,7 @@ internal/agent/             — group chat in-process: satu runner per agent di 
                               ava_handler.go = AvaHandler (HandleHuman, HandleSelfAwaken)
                               ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
                               specialist_handler.go = SpecialistHandler (HandleHuman)
-internal/identity/          — JWT autentikasi + payment guard middleware
+internal/identity/          — Firebase autentikasi + payment guard middleware
 memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + sentinel per fitur
                               (ErrSessionNotFound, ErrKnowledgeNotFound). Tidak import apa pun yang internal.
 internal/memory/            — HTTP handler + service yang mendorong ports. Vertical slice per fitur:
@@ -57,17 +57,18 @@ Endpoints (semua DELETE balas `204 No Content`):
 - `/memory` — GET/DELETE knowledge graph. **DELETE `/memory` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
-**identity** — `JWTAuthenticator` middleware extract `sub` dari JWT, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`.
+**identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`.
 
 ## Auth flow
 
-Semua route di bawah group middleware `jwtAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`.
+Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — identitasnya dari header yang di-set postera enqueuer (`user-id`, `session-id`, `time-zone`).
 
 ## Environment variables
 
 | Var | Keterangan |
 |-----|-----------|
-| `IDENTITY_JWKS_URL` | JWKS endpoint untuk verifikasi JWT |
+| `FIREBASE_PROJECT_ID` | Project ID Firebase untuk verifikasi ID token |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path service account credentials (Firebase Admin SDK, Cloud Tasks) |
 | `ZEP_API_KEY` | API key Zep |
 | `GEMINI_API_KEY` | API key model Gemini (LLM roster) |
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |

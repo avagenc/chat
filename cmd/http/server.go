@@ -8,9 +8,11 @@ import (
 	"time"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
+	firebase "firebase.google.com/go/v4"
 	"github.com/avagenc/chat/internal/agent"
 	internalava "github.com/avagenc/chat/internal/agent/ava"
 	"github.com/avagenc/chat/internal/agent/specialist"
+	"github.com/avagenc/chat/internal/identity"
 	"github.com/avagenc/chat/internal/memory"
 	internalzep "github.com/avagenc/chat/internal/zep"
 	zepclient "github.com/getzep/zep-go/v3/client"
@@ -253,30 +255,52 @@ func main() {
 			Status      string `json:"status"`
 		}{svcName, svcVersion, svcEnv, "UP"})
 	})
-	// 3. 1. Agents
+	// 3. 1. Ava self-awaken — Cloud Tasks callback, not user traffic. Identity
+	// comes from headers set by the postera enqueuer (user-id, session-id,
+	// time-zone), not a Firebase ID token, so it stays outside the Firebase
+	// auth group.
 	r.Group(func(r chi.Router) {
-		r.Use(apiuser.HTTPWithID) // TEMP: replaces jwtAuthenticator.Authenticate
+		r.Use(apiuser.HTTPWithID)
+		r.Use(apitime.HTTPWithZone)
+		r.Use(apisession.HTTPWithID)
+		r.Post(avaAwakenEndpoint, avaHandler.HandleSelfAwaken)
+	})
+	// 3. 2. Authenticated routes
+	firebaseProjectID := os.Getenv("FIREBASE_PROJECT_ID")
+	if firebaseProjectID == "" {
+		log.Fatal("fatal: FIREBASE_PROJECT_ID is required")
+	}
+	firebaseApp, err := firebase.NewApp(context.Background(), &firebase.Config{ProjectID: firebaseProjectID})
+	if err != nil {
+		log.Fatalf("fatal: init firebase app: %v", err)
+	}
+	firebaseAuthClient, err := firebaseApp.Auth(context.Background())
+	if err != nil {
+		log.Fatalf("fatal: init firebase auth client: %v", err)
+	}
+	firebaseAuthenticator := identity.NewFirebaseAuthenticator(firebaseAuthClient)
+	r.Group(func(r chi.Router) {
+		r.Use(firebaseAuthenticator.Authenticate)
 		r.Group(func(r chi.Router) {
 			r.Use(apitime.HTTPWithZone)
 			r.Use(apisession.HTTPWithID)
-			// 3. 1. 0. Ava
+			// 3. 2. 0. Ava
 			r.Post("/ava", avaHandler.HandleHuman)
-			r.Post(avaAwakenEndpoint, avaHandler.HandleSelfAwaken)
-			// 3. 1. 1. Zee
+			// 3. 2. 1. Zee
 			r.Post("/zee", zeeHandler.HandleHuman)
 		})
-		// 3. 2. Memory
-		// 3. 2. 0. Session
+		// 3. 2. 2. Memory
+		// 3. 2. 2. 0. Session
 		r.Route("/sessions", func(r chi.Router) {
 			r.Get("/{session-id}/messages", memoryHandler.GetMessages)
 			r.Delete("/{session-id}/messages", memoryHandler.ClearMessages)
 		})
-		// 3. 2. 1. Knowledge
+		// 3. 2. 2. 1. Knowledge
 		r.Route("/knowledge", func(r chi.Router) {
 			r.Get("/", memoryHandler.GetKnowledge)
 			r.Delete("/", memoryHandler.DeleteKnowledge)
 		})
-		// 3. 2. 2. Postera
+		// 3. 2. 2. 2. Postera
 		r.Route("/postera", func(r chi.Router) {
 			r.Get("/", memoryHandler.ListUpcoming)
 			r.Delete("/{posterum-id}", memoryHandler.Cancel)

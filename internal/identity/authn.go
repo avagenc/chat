@@ -1,31 +1,24 @@
 package identity
 
 import (
-	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
-	"github.com/MicahParks/keyfunc/v3"
-	"github.com/golang-jwt/jwt/v5"
+	"firebase.google.com/go/v4/auth"
 	apihttp "go.naturallyfunny.dev/api/http"
 	"go.naturallyfunny.dev/api/user"
 )
 
-type JWTAuthenticator struct {
-	jwks keyfunc.Keyfunc
+type FirebaseAuthenticator struct {
+	authClient *auth.Client
 }
 
-func NewJWTAuthenticator(jwksURL string) (*JWTAuthenticator, error) {
-	jwks, err := keyfunc.NewDefault([]string{jwksURL})
-	if err != nil {
-		return nil, fmt.Errorf("create JWKS from %q: %w", jwksURL, err)
-	}
-	return &JWTAuthenticator{jwks: jwks}, nil
+func NewFirebaseAuthenticator(authClient *auth.Client) *FirebaseAuthenticator {
+	return &FirebaseAuthenticator{authClient: authClient}
 }
 
-func (j *JWTAuthenticator) Authenticate(next http.Handler) http.Handler {
+func (f *FirebaseAuthenticator) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -33,16 +26,16 @@ func (j *JWTAuthenticator) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
+		idToken := strings.TrimPrefix(authHeader, "Bearer ")
+		if idToken == authHeader {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "invalid token format"})
 			return
 		}
 
-		parsedToken, err := jwt.Parse(token, j.jwks.Keyfunc)
+		token, err := f.authClient.VerifyIDToken(r.Context(), idToken)
 		if err != nil {
-			log.Printf("JWT Parse Error: %v", err)
-			if errors.Is(err, jwt.ErrTokenExpired) {
+			log.Printf("Firebase ID token verify error: %v", err)
+			if auth.IsIDTokenExpired(err) {
 				apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "token has expired"})
 				return
 			}
@@ -50,24 +43,7 @@ func (j *JWTAuthenticator) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		if !parsedToken.Valid {
-			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "token is not valid"})
-			return
-		}
-
-		claims, ok := parsedToken.Claims.(jwt.MapClaims)
-		if !ok {
-			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "invalid claims"})
-			return
-		}
-
-		sub, err := claims.GetSubject()
-		if err != nil || sub == "" {
-			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "user ID (sub) not found"})
-			return
-		}
-
-		ctx, err := user.ContextWithID(r.Context(), sub)
+		ctx, err := user.ContextWithID(r.Context(), token.UID)
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set user context"})
 			return
