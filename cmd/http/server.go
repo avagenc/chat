@@ -14,6 +14,7 @@ import (
 	internalava "github.com/avagenc/chat/internal/agent/ava"
 	"github.com/avagenc/chat/internal/agent/specialist"
 	"github.com/avagenc/chat/internal/identity"
+	"github.com/avagenc/chat/internal/linking"
 	"github.com/avagenc/chat/internal/memory"
 	internalzep "github.com/avagenc/chat/internal/zep"
 	zepclient "github.com/getzep/zep-go/v3/client"
@@ -142,6 +143,13 @@ func main() {
 	if googleClientSecret == "" {
 		log.Fatal("fatal: GOOGLE_CLIENT_SECRET is required")
 	}
+	// Frontend callback page Google redirects the browser to after consent.
+	// Must be registered verbatim as an authorized redirect URI on the OAuth
+	// client in Google Cloud Console.
+	googleOAuthRedirectURL := os.Getenv("GOOGLE_OAUTH_REDIRECT_URL")
+	if googleOAuthRedirectURL == "" {
+		log.Fatal("fatal: GOOGLE_OAUTH_REDIRECT_URL is required")
+	}
 	gworkspaceTokenStore := gworkspacefirestore.NewTokenStore(firestoreClient, gworkspacefirestore.WithCollection("gworkspace_tokens"))
 	// One OAuth refresh token spans Calendar, Gmail, and Contacts — the client
 	// must carry the union of all three scope sets (rafal checks this at build).
@@ -152,6 +160,7 @@ func main() {
 	gworkspaceClient := gworkspace.NewClient(gworkspaceTokenStore, &oauth2.Config{
 		ClientID:     googleClientID,
 		ClientSecret: googleClientSecret,
+		RedirectURL:  googleOAuthRedirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       gworkspaceScopes,
 	})
@@ -265,20 +274,28 @@ func main() {
 	}
 	// 1. 5. 4. HTTP Handler
 	avaHandler := internalava.NewHandler(avaRunner)
-	// 2. MEMORY
-	// 2. 0. Service
-	// 2. 0. 1. Session
+	// 2. LINKING
+	// 2. 0. Google Workspace — reuses the same gworkspace client rafal holds;
+	// rafal only consumes the stored token, linking manages it.
+	gworkspaceStateSecret := os.Getenv("GWORKSPACE_STATE_SECRET")
+	if gworkspaceStateSecret == "" {
+		log.Fatal("fatal: GWORKSPACE_STATE_SECRET is required")
+	}
+	gworkspaceLinkHandler := linking.NewGworkspaceHandler(gworkspaceClient, []byte(gworkspaceStateSecret))
+	// 3. MEMORY
+	// 3. 0. Service
+	// 3. 0. 1. Session
 	memorySessStore := internalzep.NewSessionStore(zepClient)
 	memorySessSvc := memory.NewSessionService(memorySessStore)
-	// 2. 0. 2. Knowledge
+	// 3. 0. 2. Knowledge
 	memoryKnowledgeStore := internalzep.NewKnowledgeStore(zepClient)
 	memoryKnowledgeSvc := memory.NewKnowledgeService(memoryKnowledgeStore)
-	// 2. 0. 3. Postera
+	// 3. 0. 3. Postera
 	// Postarius is made in ava wiring
-	// 2. 1. Handler
+	// 3. 1. Handler
 	memoryHandler := memory.NewHandler(memorySessSvc, memoryKnowledgeSvc, postarius)
-	// 3. HTTP
-	// 3. 0. Index
+	// 4. HTTP
+	// 4. 0. Index
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
@@ -298,7 +315,7 @@ func main() {
 			Status      string `json:"status"`
 		}{svcName, svcVersion, svcEnv, "UP"})
 	})
-	// 3. 1. Ava self-awaken — Cloud Tasks callback, not user traffic. Identity
+	// 4. 1. Ava self-awaken — Cloud Tasks callback, not user traffic. Identity
 	// comes from headers set by the postera enqueuer (user-id, session-id,
 	// time-zone), not a Firebase ID token, so it stays outside the Firebase
 	// auth group.
@@ -308,7 +325,7 @@ func main() {
 		r.Use(apisession.HTTPWithID)
 		r.Post(avaAwakenEndpoint, avaHandler.HandleSelfAwaken)
 	})
-	// 3. 2. Authenticated routes
+	// 4. 2. Authenticated routes
 	firebaseProjectID := os.Getenv("FIREBASE_PROJECT_ID")
 	if firebaseProjectID == "" {
 		log.Fatal("fatal: FIREBASE_PROJECT_ID is required")
@@ -327,31 +344,38 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(apitime.HTTPWithZone)
 			r.Use(apisession.HTTPWithID)
-			// 3. 2. 0. Ava
+			// 4. 2. 0. Ava
 			r.Post("/ava", avaHandler.HandleHuman)
-			// 3. 2. 1. Zee
+			// 4. 2. 1. Zee
 			r.Post("/zee", zeeHandler.HandleHuman)
-			// 3. 2. 2. Rafal
+			// 4. 2. 2. Rafal
 			r.Post("/rafal", rafalHandler.HandleHuman)
 		})
-		// 3. 2. 3. Memory
-		// 3. 2. 3. 0. Session
+		// 4. 2. 3. Memory
+		// 4. 2. 3. 0. Session
 		r.Route("/sessions", func(r chi.Router) {
 			r.Get("/{session-id}/messages", memoryHandler.GetMessages)
 			r.Delete("/{session-id}/messages", memoryHandler.ClearMessages)
 		})
-		// 3. 2. 3. 1. Knowledge
+		// 4. 2. 3. 1. Knowledge
 		r.Route("/knowledge", func(r chi.Router) {
 			r.Get("/", memoryHandler.GetKnowledge)
 			r.Delete("/", memoryHandler.DeleteKnowledge)
 		})
-		// 3. 2. 3. 2. Postera
+		// 4. 2. 3. 2. Postera
 		r.Route("/postera", func(r chi.Router) {
 			r.Get("/", memoryHandler.ListUpcoming)
 			r.Delete("/{posterum-id}", memoryHandler.Cancel)
 		})
+		// 4. 2. 4. Linking
+		// 4. 2. 4. 0. Google Workspace
+		r.Route("/gworkspace", func(r chi.Router) {
+			r.Get("/auth-url", gworkspaceLinkHandler.HandleAuthURL)
+			r.Post("/connection", gworkspaceLinkHandler.HandleConnect)
+			r.Delete("/connection", gworkspaceLinkHandler.HandleDisconnect)
+		})
 	})
-	// 3. Server
+	// 5. Server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

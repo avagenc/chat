@@ -128,8 +128,8 @@ go.naturallyfunny.dev/adk v1.28.0 h1:7d/7LAM+fbMvyFpaOUPZQv03c8fjF/Fb6MyikMPpWyY
 go.naturallyfunny.dev/adk v1.28.0/go.mod h1:DbKOMafJ+gX5bjTdmROn5ID+TkbV9DpozQEGOts9s8Y=
 go.naturallyfunny.dev/api v1.15.0 h1:gEnuFAAMpbWK2T+YDdqTdKe6dHmXEAUP8QCIZm+WAuQ=
 go.naturallyfunny.dev/api v1.15.0/go.mod h1:l8a+fA+ze+Y7m+QE0w6e8wyh/N3pvvE90R1WEqDMGYM=
-go.naturallyfunny.dev/gworkspace v0.4.0 h1:52q84080SaPQNRb7BjNiYICPdY0yuv12cG7+wwglRrs=
-go.naturallyfunny.dev/gworkspace v0.4.0/go.mod h1:36Gi7GzhmdwHw5Or42TygkLxz/iPbddRpfo8zzOOEgs=
+go.naturallyfunny.dev/gworkspace v0.5.0 h1:sHcXDqqYKtOJ8qDRnOd3CqzZKbEQkpcqG8ExJVvQUWM=
+go.naturallyfunny.dev/gworkspace v0.5.0/go.mod h1:36Gi7GzhmdwHw5Or42TygkLxz/iPbddRpfo8zzOOEgs=
 go.naturallyfunny.dev/postera v0.21.1 h1:o9AzHlXoBGU8F6+S10rHKfZpPPnGUt9LS3lVsMRo9Zs=
 go.naturallyfunny.dev/postera v0.21.1/go.mod h1:eghaqCsdszrpGcR0tY0HcPzla+g4ZF+ItJ7EOQ5ttQk=
 go.naturallyfunny.dev/tuya v0.5.0 h1:vl30xLVNIcicC5vPcYfQpfbnC83BzQ+ObrJDPGHSZAA=

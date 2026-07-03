@@ -12,6 +12,9 @@ internal/agent/             — group chat in-process: satu runner per agent di 
                               ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
                               specialist_handler.go = SpecialistHandler (HandleHuman)
 internal/identity/          — Firebase autentikasi + payment guard middleware
+internal/linking/           — user connect/disconnect akun eksternal. Vertical slice per integrasi:
+                              gworkspace.go = GworkspaceHandler (HandleAuthURL, HandleConnect,
+                              HandleDisconnect) + state HMAC (signState/verifyState).
 memory/                     — package PUBLIC: ports (SessionStore, KnowledgeStore) + tipe domain + sentinel per fitur
                               (ErrSessionNotFound, ErrKnowledgeNotFound). Tidak import apa pun yang internal.
 internal/memory/            — HTTP handler + service yang mendorong ports. Vertical slice per fitur:
@@ -59,6 +62,14 @@ Endpoints (semua DELETE balas `204 No Content`):
 
 **identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`.
 
+**linking** — surface user-facing untuk connect akun eksternal, sengaja lepas dari agent (rafal hanya KONSUMEN token via `*gworkspace.Client` yang sama; linking yang mengelola grant-nya). Flow Google Workspace (lihat LINKING.md untuk kontrak front end):
+
+- `GET /gworkspace/auth-url` — mint consent URL Google. State = `exp.HMAC(userID|exp)` (secret `GWORKSPACE_STATE_SECRET`, TTL 15 menit) — stateless, mengikat flow ke user peminta.
+- `POST /gworkspace/connection` — body `{code, state}` dari callback page front end. Verifikasi state → `Connect` (tukar code, simpan refresh token di Firestore). `ErrMissingScopes`/code ditolak Google → 400; sukses → 204.
+- `DELETE /gworkspace/connection` — `Disconnect` (hapus refresh token). Belum connect (`ErrNotConnected`) → 404; sukses → 204. Grant di Google Account user TIDAK di-revoke.
+
+Google me-redirect browser ke halaman callback FRONT END (`GOOGLE_OAUTH_REDIRECT_URL`), bukan ke API — semua endpoint linking tetap di belakang auth Firebase.
+
 ## Auth flow
 
 Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — identitasnya dari header yang di-set postera enqueuer (`user-id`, `session-id`, `time-zone`).
@@ -72,7 +83,9 @@ Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User 
 | `ZEP_API_KEY` | API key Zep |
 | `GEMINI_API_KEY` | API key model Gemini (LLM roster) |
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal) — refresh token user di-resolve lewat client ini |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) — refresh token user di-resolve lewat client ini |
+| `GOOGLE_OAUTH_REDIRECT_URL` | Halaman callback FRONT END tujuan redirect Google setelah consent — wajib terdaftar verbatim di OAuth client Google Cloud Console |
+| `GWORKSPACE_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state (linking gworkspace) |
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`) & token gworkspace (`gworkspace_tokens`) |
 | `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
 | `GCP_PROJECT_ID` | GCP project ID (Cloud Tasks, Firestore) |
