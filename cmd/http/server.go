@@ -14,17 +14,25 @@ import (
 	internalava "github.com/avagenc/chat/internal/agent/ava"
 	"github.com/avagenc/chat/internal/agent/specialist"
 	"github.com/avagenc/chat/internal/identity"
+	"github.com/avagenc/chat/internal/knowledge"
+	knowledgezep "github.com/avagenc/chat/internal/knowledge/zep"
 	gworkspacelink "github.com/avagenc/chat/internal/linking/gworkspace"
-	"github.com/avagenc/chat/internal/memory"
-	memoryzep "github.com/avagenc/chat/memory/zep"
+	spotifylink "github.com/avagenc/chat/internal/linking/spotify"
+	internalpostera "github.com/avagenc/chat/internal/postera"
+	"github.com/avagenc/chat/internal/session"
+	sessionzep "github.com/avagenc/chat/internal/session/zep"
+	internalwallet "github.com/avagenc/chat/internal/wallet"
+	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	spotifyauth "github.com/zmb3/spotify/v2/auth"
 	"go.avagenc.com/ava"
 	"go.avagenc.com/rafal"
+	"go.avagenc.com/yori"
 	"go.avagenc.com/zee"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
@@ -36,6 +44,8 @@ import (
 	"go.naturallyfunny.dev/postera"
 	posteracloudtasks "go.naturallyfunny.dev/postera/cloudtasks"
 	posterapostgres "go.naturallyfunny.dev/postera/postgres"
+	"go.naturallyfunny.dev/spotify"
+	spotifyfirestore "go.naturallyfunny.dev/spotify/firestore"
 	"go.naturallyfunny.dev/tuya"
 	"go.naturallyfunny.dev/tuya/cloud"
 	tuyafirestore "go.naturallyfunny.dev/tuya/firestore"
@@ -78,8 +88,33 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build gemini model: %v", err)
 	}
-	// 1. 3. Zee
-	// 1. 3. 0. Tuya App Client
+	// 1. 3. Billing — wallet ledger + biller shared by every agent run
+	walletDBURL := os.Getenv("WALLET_DB_URL")
+	if walletDBURL == "" {
+		log.Fatal("fatal: WALLET_DB_URL is required")
+	}
+	walletDBPool, err := pgxpool.New(context.Background(), walletDBURL)
+	if err != nil {
+		log.Fatalf("fatal: init wallet db pool: %v", err)
+	}
+	defer walletDBPool.Close()
+	// Schema is applied by goose in the deploy pipeline, not here — NewLedger
+	// only validates the wallet_* tables exist.
+	walletLedger, err := walletpostgres.NewLedger(context.Background(), walletDBPool)
+	if err != nil {
+		log.Fatalf("fatal: init wallet ledger: %v", err)
+	}
+	// Rates in rupiah per million tokens for gemini-3-flash-preview, Gemini
+	// price card × USD/IDR × margin. Hardcoded, not env: the snapshot is
+	// recorded on every ledger entry, and explicit wiring is the convention.
+	// Update here when the model, FX, or margin moves.
+	biller := internalwallet.NewBiller(walletLedger, internalwallet.Price{
+		InputPerMTok:  10_000,
+		CachedPerMTok: 2_500,
+		OutputPerMTok: 42_000,
+	})
+	// 1. 4. Zee
+	// 1. 4. 0. Tuya App Client
 	tuyaAccessID := os.Getenv("TUYA_ACCESS_ID")
 	if tuyaAccessID == "" {
 		log.Fatal("fatal: TUYA_ACCESS_ID is required")
@@ -114,12 +149,12 @@ func main() {
 	defer firestoreClient.Close()
 	tuyaAccountStore := tuyafirestore.NewAccountStore(firestoreClient, tuyafirestore.WithCollection("tuya_accounts"))
 	tuyaAppClient := tuya.New(tuyaIoTClient, tuyaAccountStore)
-	// 1. 3. 1. ADK Agent
+	// 1. 4. 1. ADK Agent
 	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppClient, AdditionalInstruction: agent.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build zee agent: %v", err)
 	}
-	// 1. 3. 2. ADK Runner
+	// 1. 4. 2. ADK Runner
 	const appName = "chat"
 	zeeRunner, err := runner.New(runner.Config{
 		AppName:           appName,
@@ -131,10 +166,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build zee runner: %v", err)
 	}
-	// 1. 3. 3. HTTP Handler
-	zeeHandler := specialist.NewHandler(zeeRunner)
-	// 1. 4. Rafal
-	// 1. 4. 0. Google Workspace Client
+	// 1. 4. 3. HTTP Handler
+	zeeHandler := specialist.NewHandler(zeeRunner, biller, zeeAgent.Name())
+	// 1. 5. Rafal
+	// 1. 5. 0. Google Workspace Client
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	if googleClientID == "" {
 		log.Fatal("fatal: GOOGLE_CLIENT_ID is required")
@@ -143,12 +178,14 @@ func main() {
 	if googleClientSecret == "" {
 		log.Fatal("fatal: GOOGLE_CLIENT_SECRET is required")
 	}
-	// Frontend callback page Google redirects the browser to after consent.
-	// Must be registered verbatim as an authorized redirect URI on the OAuth
-	// client in Google Cloud Console.
-	googleOAuthRedirectURL := os.Getenv("GOOGLE_OAUTH_REDIRECT_URL")
-	if googleOAuthRedirectURL == "" {
-		log.Fatal("fatal: GOOGLE_OAUTH_REDIRECT_URL is required")
+	// The single frontend callback page every linking provider redirects the
+	// browser to after consent (the page routes by the integration segment in
+	// the state parameter). Must be registered verbatim as an authorized
+	// redirect URI at each provider: the OAuth client in Google Cloud Console
+	// and the app in the Spotify Developer Dashboard.
+	linkingRedirectURL := os.Getenv("LINKING_REDIRECT_URL")
+	if linkingRedirectURL == "" {
+		log.Fatal("fatal: LINKING_REDIRECT_URL is required")
 	}
 	gworkspaceTokenStore := gworkspacefirestore.NewTokenStore(firestoreClient, gworkspacefirestore.WithCollection("gworkspace_tokens"))
 	// One OAuth refresh token spans Calendar, Gmail, and Contacts — the client
@@ -160,16 +197,16 @@ func main() {
 	gworkspaceClient := gworkspace.NewClient(gworkspaceTokenStore, &oauth2.Config{
 		ClientID:     googleClientID,
 		ClientSecret: googleClientSecret,
-		RedirectURL:  googleOAuthRedirectURL,
+		RedirectURL:  linkingRedirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       gworkspaceScopes,
 	})
-	// 1. 4. 1. ADK Agent
+	// 1. 5. 1. ADK Agent
 	rafalAgent, err := rafal.New(rafal.Config{Model: agentModel, WorkspaceClient: gworkspaceClient, AdditionalInstruction: agent.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build rafal agent: %v", err)
 	}
-	// 1. 4. 2. ADK Runner
+	// 1. 5. 2. ADK Runner
 	rafalRunner, err := runner.New(runner.Config{
 		AppName:           appName,
 		Agent:             rafalAgent,
@@ -180,10 +217,45 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build rafal runner: %v", err)
 	}
-	// 1. 4. 3. HTTP Handler
-	rafalHandler := specialist.NewHandler(rafalRunner)
-	// 1. 5. Ava
-	// 1. 5. 0. Postera
+	// 1. 5. 3. HTTP Handler
+	rafalHandler := specialist.NewHandler(rafalRunner, biller, rafalAgent.Name())
+	// 1. 6. Yori
+	// 1. 6. 0. Spotify Client
+	spotifyClientID := os.Getenv("SPOTIFY_CLIENT_ID")
+	if spotifyClientID == "" {
+		log.Fatal("fatal: SPOTIFY_CLIENT_ID is required")
+	}
+	spotifyClientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
+	if spotifyClientSecret == "" {
+		log.Fatal("fatal: SPOTIFY_CLIENT_SECRET is required")
+	}
+	spotifyTokenStore := spotifyfirestore.New(firestoreClient, spotifyfirestore.WithCollection("spotify_tokens"))
+	spotifyClient := spotify.New(spotifyTokenStore, spotifyauth.New(
+		spotifyauth.WithClientID(spotifyClientID),
+		spotifyauth.WithClientSecret(spotifyClientSecret),
+		spotifyauth.WithRedirectURL(linkingRedirectURL),
+		spotifyauth.WithScopes(spotify.RequiredScopes...),
+	))
+	// 1. 6. 1. ADK Agent
+	yoriAgent, err := yori.New(yori.Config{Model: agentModel, SpotifyClient: spotifyClient, AdditionalInstruction: agent.Instruction()})
+	if err != nil {
+		log.Fatalf("fatal: build yori agent: %v", err)
+	}
+	// 1. 6. 2. ADK Runner
+	yoriRunner, err := runner.New(runner.Config{
+		AppName:           appName,
+		Agent:             yoriAgent,
+		SessionService:    agentSessSvc,
+		MemoryService:     agentMemSvc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		log.Fatalf("fatal: build yori runner: %v", err)
+	}
+	// 1. 6. 3. HTTP Handler
+	yoriHandler := specialist.NewHandler(yoriRunner, biller, yoriAgent.Name())
+	// 1. 7. Ava
+	// 1. 7. 0. Postera
 	posteraDBURL := os.Getenv("POSTERA_DB_URL")
 	if posteraDBURL == "" {
 		log.Fatal("fatal: POSTERA_DB_URL is required")
@@ -248,20 +320,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: init postarius: %v", err)
 	}
-	// 1. 5. 1. Sub Agents
-	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner)
-	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner)
-	// 1. 5. 2. ADK Agent
+	// 1. 7. 1. Sub Agents
+	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller)
+	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller)
+	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller)
+	// 1. 7. 2. ADK Agent
 	avaAgent, err := ava.New(ava.Config{
 		Model:                 agentModel,
 		Postarius:             postarius,
-		SubAgents:             []ava.SubAgent{zeeAvaSubAgent, rafalAvaSubAgent},
+		SubAgents:             []ava.SubAgent{zeeAvaSubAgent, rafalAvaSubAgent, yoriAvaSubAgent},
 		AdditionalInstruction: agent.Instruction(),
 	})
 	if err != nil {
 		log.Fatalf("fatal: build ava agent: %v", err)
 	}
-	// 1. 5. 3. ADK Runner
+	// 1. 7. 3. ADK Runner
 	avaRunner, err := runner.New(runner.Config{
 		AppName:           appName,
 		Agent:             avaAgent,
@@ -272,30 +345,38 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build ava runner: %v", err)
 	}
-	// 1. 5. 4. HTTP Handler
-	avaHandler := internalava.NewHandler(avaRunner)
+	// 1. 7. 4. HTTP Handler
+	avaHandler := internalava.NewHandler(avaRunner, biller)
 	// 2. LINKING
+	// One secret signs the OAuth state for every integration; each handler
+	// domain-separates it by folding its integration name into the mac
+	// (see linking.SignState).
+	oauthStateSecret := os.Getenv("OAUTH_STATE_SECRET")
+	if oauthStateSecret == "" {
+		log.Fatal("fatal: OAUTH_STATE_SECRET is required")
+	}
 	// 2. 0. Google Workspace — reuses the same gworkspace client rafal holds;
 	// rafal only consumes the stored token, linking manages it.
-	gworkspaceStateSecret := os.Getenv("GWORKSPACE_STATE_SECRET")
-	if gworkspaceStateSecret == "" {
-		log.Fatal("fatal: GWORKSPACE_STATE_SECRET is required")
-	}
-	gworkspaceLinkHandler := gworkspacelink.NewHandler(gworkspaceClient, []byte(gworkspaceStateSecret))
-	// 3. MEMORY
-	// 3. 0. Service
-	// 3. 0. 1. Session
-	memorySessStore := memoryzep.NewSessionStore(zepClient)
-	memorySessSvc := memory.NewSessionService(memorySessStore)
-	// 3. 0. 2. Knowledge
-	memoryKnowledgeStore := memoryzep.NewKnowledgeStore(zepClient)
-	memoryKnowledgeSvc := memory.NewKnowledgeService(memoryKnowledgeStore)
-	// 3. 0. 3. Postera
-	// Postarius is made in ava wiring
-	// 3. 1. Handler
-	memoryHandler := memory.NewHandler(memorySessSvc, memoryKnowledgeSvc, postarius)
-	// 4. HTTP
-	// 4. 0. Index
+	gworkspaceLinkHandler := gworkspacelink.NewHandler(gworkspaceClient, []byte(oauthStateSecret))
+	// 2. 1. Spotify — reuses the same spotify client yori holds; yori only
+	// consumes the stored token, linking manages it.
+	spotifyLinkHandler := spotifylink.NewHandler(spotifyClient, []byte(oauthStateSecret))
+	// 3. MEMORY — one package per memory type
+	// 3. 0. Session (episodic)
+	sessionStore := sessionzep.NewStore(zepClient)
+	sessionService := session.NewService(sessionStore)
+	sessionHandler := session.NewHandler(sessionService)
+	// 3. 1. Knowledge (semantic)
+	knowledgeStore := knowledgezep.NewStore(zepClient)
+	knowledgeService := knowledge.NewService(knowledgeStore)
+	knowledgeHandler := knowledge.NewHandler(knowledgeService)
+	// 3. 2. Postera (prospective) — Postarius is made in ava wiring
+	posteraHandler := internalpostera.NewHandler(postarius)
+	// 4. WALLET
+	walletGuard := internalwallet.NewGuard(walletLedger)
+	walletHandler := internalwallet.NewHandler(walletLedger)
+	// 5. HTTP
+	// 5. 0. Index
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
@@ -305,7 +386,7 @@ func main() {
 	if svcEnv == "" {
 		log.Fatal("fatal: APP_ENV is required")
 	}
-	const svcName = appName + "-api"
+	const svcName = appName + "-http-server"
 	const svcVersion = "v0.0.1"
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteJSON(w, http.StatusOK, struct {
@@ -315,17 +396,19 @@ func main() {
 			Status      string `json:"status"`
 		}{svcName, svcVersion, svcEnv, "UP"})
 	})
-	// 4. 1. Ava self-awaken — Cloud Tasks callback, not user traffic. Identity
+	// 5. 1. Ava self-awaken — Cloud Tasks callback, not user traffic. Identity
 	// comes from headers set by the postera enqueuer (user-id, session-id,
 	// time-zone), not a Firebase ID token, so it stays outside the Firebase
-	// auth group.
+	// auth group. Balance-gated like every agent route: an empty wallet skips
+	// the run (Cloud Tasks retries the 402 until its retry policy exhausts).
 	r.Group(func(r chi.Router) {
 		r.Use(apiuser.HTTPWithID)
+		r.Use(walletGuard.RequireBalance)
 		r.Use(apitime.HTTPWithZone)
 		r.Use(apisession.HTTPWithID)
 		r.Post(avaAwakenEndpoint, avaHandler.HandleSelfAwaken)
 	})
-	// 4. 2. Authenticated routes
+	// 5. 2. Authenticated routes
 	firebaseProjectID := os.Getenv("FIREBASE_PROJECT_ID")
 	if firebaseProjectID == "" {
 		log.Fatal("fatal: FIREBASE_PROJECT_ID is required")
@@ -342,40 +425,55 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(firebaseAuthenticator.Authenticate)
 		r.Group(func(r chi.Router) {
+			r.Use(walletGuard.RequireBalance)
 			r.Use(apitime.HTTPWithZone)
 			r.Use(apisession.HTTPWithID)
-			// 4. 2. 0. Ava
+			// 5. 2. 0. Ava
 			r.Post("/ava", avaHandler.HandleHuman)
-			// 4. 2. 1. Zee
+			// 5. 2. 1. Zee
 			r.Post("/zee", zeeHandler.HandleHuman)
-			// 4. 2. 2. Rafal
+			// 5. 2. 2. Rafal
 			r.Post("/rafal", rafalHandler.HandleHuman)
+			// 5. 2. 3. Yori
+			r.Post("/yori", yoriHandler.HandleHuman)
 		})
-		// 4. 2. 3. Memory
-		// 4. 2. 3. 0. Session
+		// 5. 2. 4. Memory
+		// 5. 2. 4. 0. Session
 		r.Route("/sessions", func(r chi.Router) {
-			r.Get("/{session-id}/messages", memoryHandler.GetMessages)
-			r.Delete("/{session-id}/messages", memoryHandler.ClearMessages)
+			r.Get("/{session-id}/messages", sessionHandler.HandleGetMessages)
+			r.Delete("/{session-id}/messages", sessionHandler.HandleClearMessages)
 		})
-		// 4. 2. 3. 1. Knowledge
+		// 5. 2. 4. 1. Knowledge
 		r.Route("/knowledge", func(r chi.Router) {
-			r.Get("/", memoryHandler.GetKnowledge)
-			r.Delete("/", memoryHandler.DeleteKnowledge)
+			r.Get("/", knowledgeHandler.HandleGet)
+			r.Delete("/", knowledgeHandler.HandleDelete)
 		})
-		// 4. 2. 3. 2. Postera
+		// 5. 2. 4. 2. Postera
 		r.Route("/postera", func(r chi.Router) {
-			r.Get("/", memoryHandler.ListUpcoming)
-			r.Delete("/{posterum-id}", memoryHandler.Cancel)
+			r.Get("/", posteraHandler.HandleListUpcoming)
+			r.Delete("/{posterum-id}", posteraHandler.HandleCancel)
 		})
-		// 4. 2. 4. Linking
-		// 4. 2. 4. 0. Google Workspace
+		// 5. 2. 5. Linking
+		// 5. 2. 5. 0. Google Workspace
 		r.Route("/gworkspace", func(r chi.Router) {
 			r.Get("/auth-url", gworkspaceLinkHandler.HandleAuthURL)
 			r.Post("/connection", gworkspaceLinkHandler.HandleConnect)
 			r.Delete("/connection", gworkspaceLinkHandler.HandleDisconnect)
 		})
+		// 5. 2. 5. 1. Spotify
+		r.Route("/spotify", func(r chi.Router) {
+			r.Get("/auth-url", spotifyLinkHandler.HandleAuthURL)
+			r.Post("/connection", spotifyLinkHandler.HandleConnect)
+			r.Delete("/connection", spotifyLinkHandler.HandleDisconnect)
+		})
+		// 5. 2. 6. Wallet — not behind the balance guard: an empty wallet
+		// must still be able to see its balance.
+		r.Route("/wallet", func(r chi.Router) {
+			r.Get("/", walletHandler.HandleBalance)
+			r.With(apitime.HTTPWithZone).Get("/usage/today", walletHandler.HandleTodayUsage)
+		})
 	})
-	// 5. Server
+	// 6. Server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -388,7 +486,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 	log.Printf("In the name of Allah, The Most Compassionate, The Most Merciful")
-	log.Printf("Starting %s service [%s] on port %s", svcName, svcEnv, port)
+	log.Printf("Starting %s HTTP server [%s] on port %s", svcName, svcEnv, port)
 	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("fatal: failed to start server: %v", err)
 	}

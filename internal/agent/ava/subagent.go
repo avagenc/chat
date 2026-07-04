@@ -4,9 +4,11 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	"go.avagenc.com/ava"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apisess "go.naturallyfunny.dev/api/session"
@@ -21,12 +23,13 @@ type subAgent struct {
 	name        string
 	description string
 	runner      *runner.Runner
+	biller      *wallet.Biller
 }
 
 var _ ava.SubAgent = (*subAgent)(nil)
 
-func NewSubAgent(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
-	return &subAgent{name: a.Name(), description: a.Description(), runner: r}
+func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller) ava.SubAgent {
+	return &subAgent{name: a.Name(), description: a.Description(), runner: r, biller: b}
 }
 
 func (s *subAgent) Name() string        { return s.name }
@@ -59,10 +62,18 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByAvaInstruction}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := s.biller.Charge(ctx, userID, wallet.Run{Agent: s.name, Session: sessID, Trigger: "ava"}, usage); err != nil {
+			log.Printf("error: charge user %s for %s run: %v", userID, s.name, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			return "", fmt.Errorf("subagent %s: %w", s.name, err)
 		}
+		usage.Add(event)
 		if event.IsFinalResponse() && event.Content != nil {
 			var resp strings.Builder
 			for _, p := range event.Content.Parts {

@@ -19,22 +19,33 @@ import (
 // leaked state goes stale quickly.
 const StateTTL = 15 * time.Minute
 
-// SignState builds the OAuth state parameter: `<unix-expiry>.<base64url mac>`
-// with mac = HMAC-SHA256(owner NUL expiry). Binding the owner into the mac —
-// verified against the caller's JWT identity on connect — stops the classic
-// OAuth CSRF where a victim is tricked into completing the flow with an
-// attacker's code, and needs no server-side state store.
-func SignState(secret []byte, owner string, expiry time.Time) string {
+// SignState builds the OAuth state parameter:
+// `<integration>.<unix-expiry>.<base64url mac>` with
+// mac = HMAC-SHA256(integration NUL owner NUL expiry).
+//
+// Binding the owner into the mac — verified against the caller's JWT identity
+// on connect — stops the classic OAuth CSRF where a victim is tricked into
+// completing the flow with an attacker's code, and needs no server-side state
+// store. Binding the integration domain-separates the shared secret, so a
+// state minted for one provider never verifies at another's connect endpoint.
+// The integration segment is deliberately readable: every provider redirects
+// to the same frontend callback page, which routes the flow to
+// `POST /{integration}/connection` by reading it.
+func SignState(secret []byte, integration, owner string, expiry time.Time) string {
 	exp := strconv.FormatInt(expiry.Unix(), 10)
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(owner + "\x00" + exp))
-	return exp + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	mac.Write([]byte(integration + "\x00" + owner + "\x00" + exp))
+	return integration + "." + exp + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// VerifyState checks that state was minted by SignState for this owner and
-// has not expired.
-func VerifyState(secret []byte, state, owner string, now time.Time) bool {
-	exp, macB64, ok := strings.Cut(state, ".")
+// VerifyState checks that state was minted by SignState for this integration
+// and owner, and has not expired.
+func VerifyState(secret []byte, state, integration, owner string, now time.Time) bool {
+	gotIntegration, rest, ok := strings.Cut(state, ".")
+	if !ok || gotIntegration != integration {
+		return false
+	}
+	exp, macB64, ok := strings.Cut(rest, ".")
 	if !ok {
 		return false
 	}
@@ -47,6 +58,6 @@ func VerifyState(secret []byte, state, owner string, now time.Time) bool {
 		return false
 	}
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(owner + "\x00" + exp))
+	mac.Write([]byte(integration + "\x00" + owner + "\x00" + exp))
 	return hmac.Equal(got, mac.Sum(nil))
 }

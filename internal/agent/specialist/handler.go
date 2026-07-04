@@ -3,10 +3,12 @@ package specialist
 import (
 	_ "embed"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apisess "go.naturallyfunny.dev/api/session"
@@ -19,10 +21,14 @@ import (
 
 type handler struct {
 	runner *runner.Runner
+	biller *wallet.Biller
+	// agentName identifies which specialist this handler instance fronts
+	// (one instance per runner), for the billing receipt.
+	agentName string
 }
 
-func NewHandler(r *runner.Runner) *handler {
-	return &handler{runner: r}
+func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *handler {
+	return &handler{runner: r, biller: b, agentName: agentName}
 }
 
 //go:embed specialist-ran-by-human-instruction.txt
@@ -62,11 +68,19 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByHumanInstruction}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: h.agentName, Session: sessID, Trigger: "human"}, usage); err != nil {
+			log.Printf("error: charge user %s for %s run: %v", userID, h.agentName, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
+		usage.Add(event)
 		if event.IsFinalResponse() && event.Content != nil {
 			var resp strings.Builder
 			for _, p := range event.Content.Parts {

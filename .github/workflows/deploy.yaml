@@ -14,8 +14,8 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
-      SERVICE_NAME: chat-api
-      IMAGE_NAME: chat-api
+      SERVICE_NAME: chat-http
+      IMAGE_NAME: chat-http
       APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
@@ -78,17 +78,23 @@ jobs:
 
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
-            TUYA_BASE_URL=${{ vars.TUYA_BASE_URL }}
-            CLOUD_TASKS_LOCATION_ID=${{ env.REGION }}
-            CLOUD_TASKS_QUEUE_ID=ava
-            GCP_RUNTIME_SA_EMAIL=${{ vars.GCP_SA_EMAIL }}
             HOST_URL=${{ vars.HOST_URL }}
             ZEP_API_KEY=${{ secrets.ZEP_API_KEY }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             TUYA_ACCESS_ID=${{ secrets.TUYA_ACCESS_ID }}
             TUYA_ACCESS_SECRET=${{ secrets.TUYA_ACCESS_SECRET }}
-            ZEE_DB_URL=${{ secrets.ZEE_DB_URL }}
+            TUYA_BASE_URL=https://openapi.tuyaus.com
+            GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
+            SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
+            LINKING_REDIRECT_URL=${{ vars.LINKING_REDIRECT_URL }}
+            OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
+            FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+            FIREBASE_DATABASE_ID=identity
+            GCP_RUNTIME_SA_EMAIL=${{ vars.GCP_RUNTIME_SA_EMAIL }}
+            GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+            CLOUD_TASKS_LOCATION_ID=${{ env.REGION }}
+            CLOUD_TASKS_QUEUE_ID=ava
             POSTERA_DB_URL=${{ secrets.POSTERA_DB_URL }}
             WALLET_DB_URL=${{ secrets.WALLET_DB_URL }}
-            FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}

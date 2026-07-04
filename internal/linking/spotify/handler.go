@@ -40,9 +40,14 @@ func NewHandler(connector Connector, stateSecret []byte) *Handler {
 	return &Handler{connector: connector, stateSecret: stateSecret}
 }
 
+// integration names this slice inside the OAuth state parameter: it
+// domain-separates the shared state secret, and the frontend callback page
+// reads it to route the flow back to this integration's connect endpoint.
+const integration = "spotify"
+
 // HandleAuthURL mints the Spotify consent URL the frontend must send the user
-// to. Spotify redirects back to the frontend callback page with ?code=&state=,
-// which the frontend forwards verbatim to HandleConnect.
+// to. Spotify redirects back to the shared frontend callback page with
+// ?code=&state=, which the frontend forwards verbatim to HandleConnect.
 func (h *Handler) HandleAuthURL(w http.ResponseWriter, r *http.Request) {
 	userID, err := apiuser.IDFromContext(r.Context())
 	if err != nil {
@@ -50,7 +55,7 @@ func (h *Handler) HandleAuthURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := linking.SignState(h.stateSecret, userID, time.Now().Add(linking.StateTTL))
+	state := linking.SignState(h.stateSecret, integration, userID, time.Now().Add(linking.StateTTL))
 	apihttp.WriteJSON(w, http.StatusOK, struct {
 		URL string `json:"url"`
 	}{h.connector.AuthURL(state)})
@@ -73,7 +78,7 @@ func (h *Handler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "code and state required"})
 		return
 	}
-	if !linking.VerifyState(h.stateSecret, body.State, userID, time.Now()) {
+	if !linking.VerifyState(h.stateSecret, body.State, integration, userID, time.Now()) {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "invalid or expired state"})
 		return
 	}

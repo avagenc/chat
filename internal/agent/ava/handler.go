@@ -4,10 +4,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
@@ -21,9 +23,12 @@ import (
 
 type handler struct {
 	runner *runner.Runner
+	biller *wallet.Biller
 }
 
-func NewHandler(r *runner.Runner) *handler { return &handler{runner: r} }
+func NewHandler(r *runner.Runner, b *wallet.Biller) *handler {
+	return &handler{runner: r, biller: b}
+}
 
 func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -59,11 +64,19 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: ""}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
+			log.Printf("error: charge user %s for ava run: %v", userID, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
+		usage.Add(event)
 		if event.IsFinalResponse() && event.Content != nil {
 			var resp strings.Builder
 			for _, p := range event.Content.Parts {
@@ -118,11 +131,19 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: avaRanByPosteraInstruction}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "postera"}, usage); err != nil {
+			log.Printf("error: charge user %s for ava run: %v", userID, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
+		usage.Add(event)
 		if event.IsFinalResponse() && event.Content != nil {
 			var resp strings.Builder
 			for _, p := range event.Content.Parts {
