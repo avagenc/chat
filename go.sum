@@ -248,6 +248,10 @@ github.com/zmb3/spotify/v2 v2.4.3 h1:4divquzK2Mzo90XVIij4K7Z98Hf+6A3qPnksqtcDIuo
 github.com/zmb3/spotify/v2 v2.4.3/go.mod h1:XOV7BrThayFYB9AAfB+L0Q0wyxBuLCARk4fI/ZXCBW8=
 go.avagenc.com/ava v0.6.0 h1:MZh1KHbvgU16ow094Fw4ySmJpEjUbkJWtsn5CMp/W6g=
 go.avagenc.com/ava v0.6.0/go.mod h1:vNj8AC3eWUB8XnG5w6tv8iJ8BThaVUrqGxLtmNxWOCM=
+go.avagenc.com/rafal v0.1.0 h1:z4cZbo1x+6dd/B1pWIe0KpvJQZXdcai0O5itXwk1Wuw=
+go.avagenc.com/rafal v0.1.0/go.mod h1:UgXecF7vIxEvLayUlA0sSUDr4omm0vceEutOdIo6dmo=
+go.avagenc.com/yori v0.2.0 h1:7pjF0WMlV9UtP/K1ZTUTwZIJpdgpEImlEeNHzCEmNaU=
+go.avagenc.com/yori v0.2.0/go.mod h1:vHcoyCKAMP1hZ8dYPpBCV3ePWMMib9588kTAr6fkwGA=
 go.avagenc.com/zee v0.6.0 h1:gzDh6JnoVZpdu1c0EfCwoKj42a73X6IpGpc9NP8n14Y=
 go.avagenc.com/zee v0.6.0/go.mod h1:bDgnqdvFTML592czt48Ta6TW3R8AD5V/5Kt+RvhH+9M=
 go.naturallyfunny.dev/adk v1.30.0 h1:98jm9pPI234eKJz5W770aVlqu+KPS2ClD2NK716ery4=

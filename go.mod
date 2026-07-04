@@ -98,11 +98,3 @@ require (
 	rsc.io/omap v1.2.0 // indirect
 	rsc.io/ordered v1.1.1 // indirect
 )
-
-// TEMPORARY: go.avagenc.com/rafal and go.avagenc.com/yori are not yet
-// registered on the go.avagenc.com vanity-import redirect — `go get`/
-// `go mod tidy` 404s on them. Points at the local checkouts so this repo
-// still builds; remove once the redirect is live.
-replace go.avagenc.com/rafal => ../rafal
-
-replace go.avagenc.com/yori => ../yori

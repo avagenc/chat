@@ -183,9 +183,9 @@ func main() {
 	// the state parameter). Must be registered verbatim as an authorized
 	// redirect URI at each provider: the OAuth client in Google Cloud Console
 	// and the app in the Spotify Developer Dashboard.
-	linkingRedirectURL := os.Getenv("LINKING_REDIRECT_URL")
-	if linkingRedirectURL == "" {
-		log.Fatal("fatal: LINKING_REDIRECT_URL is required")
+	linkRedirectURL := os.Getenv("LINK_REDIRECT_URL")
+	if linkRedirectURL == "" {
+		log.Fatal("fatal: LINK_REDIRECT_URL is required")
 	}
 	gworkspaceTokenStore := gworkspacefirestore.NewTokenStore(firestoreClient, gworkspacefirestore.WithCollection("gworkspace_tokens"))
 	// One OAuth refresh token spans Calendar, Gmail, and Contacts — the client
@@ -197,7 +197,7 @@ func main() {
 	gworkspaceClient := gworkspace.NewClient(gworkspaceTokenStore, &oauth2.Config{
 		ClientID:     googleClientID,
 		ClientSecret: googleClientSecret,
-		RedirectURL:  linkingRedirectURL,
+		RedirectURL:  linkRedirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       gworkspaceScopes,
 	})
@@ -233,7 +233,7 @@ func main() {
 	spotifyClient := spotify.New(spotifyTokenStore, spotifyauth.New(
 		spotifyauth.WithClientID(spotifyClientID),
 		spotifyauth.WithClientSecret(spotifyClientSecret),
-		spotifyauth.WithRedirectURL(linkingRedirectURL),
+		spotifyauth.WithRedirectURL(linkRedirectURL),
 		spotifyauth.WithScopes(spotify.RequiredScopes...),
 	))
 	// 1. 6. 1. ADK Agent

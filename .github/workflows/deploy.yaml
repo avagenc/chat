@@ -39,10 +39,8 @@ jobs:
       - name: Build and Push Docker Image
         env:
           IMAGE_URL: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           docker buildx build --platform linux/amd64 \
-            --secret id=gh_token,env=GH_TOKEN \
             -t $IMAGE_URL --push .
 
       - name: Set up Go
@@ -88,7 +86,7 @@ jobs:
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
-            LINKING_REDIRECT_URL=${{ vars.LINKING_REDIRECT_URL }}
+            LINK_REDIRECT_URL=${{ vars.LINKING_REDIRECT_URL }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             FIRESTORE_DATABASE_ID=(default)
