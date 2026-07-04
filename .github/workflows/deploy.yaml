@@ -45,6 +45,22 @@ jobs:
             --secret id=gh_token,env=GH_TOKEN \
             -t $IMAGE_URL --push .
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      # Schema changes land before the new revision serves; the app runtime
+      # never runs DDL (it only validates the tables exist at boot).
+      - name: Migrate Wallet Database
+        env:
+          WALLET_DB_URL: ${{ secrets.WALLET_DB_URL }}
+        run: |
+          go run github.com/pressly/goose/v3/cmd/goose@v3.27.2 \
+            -dir internal/wallet/postgres/migrations \
+            postgres "$WALLET_DB_URL" up
+
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -74,4 +90,5 @@ jobs:
             TUYA_ACCESS_SECRET=${{ secrets.TUYA_ACCESS_SECRET }}
             ZEE_DB_URL=${{ secrets.ZEE_DB_URL }}
             POSTERA_DB_URL=${{ secrets.POSTERA_DB_URL }}
+            WALLET_DB_URL=${{ secrets.WALLET_DB_URL }}
             FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
