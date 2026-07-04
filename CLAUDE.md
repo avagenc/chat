@@ -12,7 +12,7 @@ internal/agent/             — group chat in-process: satu runner per agent di 
                               ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
                               specialist_handler.go = SpecialistHandler (HandleHuman)
 internal/identity/          — Firebase autentikasi + payment guard middleware
-internal/linking/           — user connect/disconnect akun eksternal. SATU SUBPACKAGE PER INTEGRASI;
+internal/link/              — user connect/disconnect akun eksternal. SATU SUBPACKAGE PER INTEGRASI;
                               root hanya berisi shared code yang DITEMUKAN identik lintas integrasi,
                               bukan diramal: state.go (OAuth state HMAC: SignState/VerifyState/StateTTL,
                               dipakai gworkspace & spotify).
@@ -21,9 +21,9 @@ internal/knowledge/         — memory semantik: knowledge graph user. service.g
                               + Service; handler.go = HTTP glue (Handler: HandleGet, HandleDelete).
 internal/knowledge/zep/     — adapter Zep: implement knowledge.Store, terjemahkan not-found Zep ke
                               sentinel knowledge.
-internal/linking/gworkspace — linking Google Workspace: handler.go (Handler: HandleAuthURL, HandleConnect,
+internal/link/gworkspace    — linking Google Workspace: handler.go (Handler: HandleAuthURL, HandleConnect,
                               HandleDisconnect).
-internal/linking/spotify    — linking Spotify: handler.go, struktur sama persis dengan gworkspace
+internal/link/spotify       — linking Spotify: handler.go, struktur sama persis dengan gworkspace
                               (konsumen tokennya yori).
 internal/postera/           — memory prospektif: handler.go = HTTP glue di atas postera.Postarius
                               eksternal (Handler: HandleListUpcoming, HandleCancel). Tanpa service/
@@ -64,7 +64,7 @@ Jangan setengah-setengah: kontrak internal dengan adapter public itu kontradiksi
 bertipe internal tidak bisa dipakai siapa pun). Aturan penempatan package: package tinggal di
 samping hal yang MENDEFINISIKAN TUJUANNYA — adapter zep di samping kontrak session/knowledge yang
 dia implement; adapter postgres di samping kontrak wallet; handler linking gworkspace di bawah
-`internal/linking` karena tujuannya fitur linking app ini.
+`internal/link` karena tujuannya fitur linking app ini.
 
 ## Domain
 
@@ -98,13 +98,13 @@ Endpoints (semua DELETE balas `204 No Content`):
 - `/knowledge` — GET/DELETE knowledge graph. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
-**identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`.
+**identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`. Identity adalah concern AVAGENC-LEVEL (platform), bukan chat-level: satu akun Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
 
 **wallet** — ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`), dipotong per agent run sesuai token usage (WALLET.md = sumber keputusan desain + kontrak front end). Post-paid: `internal/wallet/biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop (`usage.Add(event)` sebelum branch final response) lalu `Charge` sekali per run via defer — satu transaksi `agent_run` (debit user + credit revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log; biller sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`). Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main. Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/zee`, `/rafal`, `/yori`, `/ava/awaken`; debit boleh membuat saldo sedikit minus. Charge gagal = log, bukan 5xx; pakai `context.WithoutCancel`. Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret `WALLET_DB_URL`) sebelum deploy; boot hanya validasi. Belum ada top-up (payment gateway belum dipilih) — dev seeding via SQL di WALLET.md.
 
-**linking** — surface user-facing untuk connect akun eksternal, sengaja lepas dari agent (agent hanya KONSUMEN token via client yang sama — rafal via `*gworkspace.Client`, yori via `*spotify.Client`; linking yang mengelola grant-nya). Dua integrasi dengan flow identik (lihat LINKING.md untuk kontrak front end), contoh Google Workspace:
+**linking** — surface user-facing untuk connect akun eksternal, sengaja lepas dari agent (agent hanya KONSUMEN token via client yang sama — rafal via `*gworkspace.Client`, yori via `*spotify.Client`; linking yang mengelola grant-nya). Seperti identity, linking adalah concern AVAGENC-LEVEL, bukan chat-level: user connect SEKALI dan grant-nya berlaku untuk semua produk Avagenc (kalau nanti ada produk lain, tidak perlu linking ulang). Karena itu data linking (Firestore di project `avagenc`, database via `FIRESTORE_DATABASE_ID`) di-scope dan dinamai level platform — JANGAN dinamai per-product (bukan `avagenc-chat`). Dua integrasi dengan flow identik (lihat LINKING.md untuk kontrak front end), contoh Google Workspace:
 
-- `GET /gworkspace/auth-url` — mint consent URL Google. State = `integration.exp.HMAC(integration|userID|exp)` (SATU secret bersama `OAUTH_STATE_SECRET` untuk semua integrasi — nama integrasi di mac men-domain-separate-nya; TTL 15 menit, helper di root `internal/linking`) — stateless, mengikat flow ke user peminta dan integrasinya.
+- `GET /gworkspace/auth-url` — mint consent URL Google. State = `integration.exp.HMAC(integration|userID|exp)` (SATU secret bersama `OAUTH_STATE_SECRET` untuk semua integrasi — nama integrasi di mac men-domain-separate-nya; TTL 15 menit, helper di root `internal/link`) — stateless, mengikat flow ke user peminta dan integrasinya.
 - `POST /gworkspace/connection` — body `{code, state}` dari callback page front end. Verifikasi state → `Connect` (tukar code, simpan refresh token di Firestore). `ErrMissingScopes`/code ditolak Google → 400; sukses → 204.
 - `DELETE /gworkspace/connection` — `Disconnect` (hapus refresh token). Belum connect (`ErrNotConnected`) → 404; sukses → 204. Grant di Google Account user TIDAK di-revoke.
 

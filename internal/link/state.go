@@ -1,9 +1,9 @@
-// Package linking holds the shared code real integrations turned out to need.
+// Package link holds the shared code real integrations turned out to need.
 // Each integration lives in its own subpackage (gworkspace, spotify); this
 // root package only grows when the same code is discovered in more than one
 // of them — currently the HMAC-signed OAuth state parameter, which every
 // SPA-callback OAuth flow here mints and verifies identically.
-package linking
+package link
 
 import (
 	"crypto/hmac"

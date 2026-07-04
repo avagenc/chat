@@ -16,8 +16,8 @@ import (
 	"github.com/avagenc/chat/internal/identity"
 	"github.com/avagenc/chat/internal/knowledge"
 	knowledgezep "github.com/avagenc/chat/internal/knowledge/zep"
-	gworkspacelink "github.com/avagenc/chat/internal/linking/gworkspace"
-	spotifylink "github.com/avagenc/chat/internal/linking/spotify"
+	gworkspacelink "github.com/avagenc/chat/internal/link/gworkspace"
+	spotifylink "github.com/avagenc/chat/internal/link/spotify"
 	internalpostera "github.com/avagenc/chat/internal/postera"
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
@@ -350,7 +350,7 @@ func main() {
 	// 2. LINKING
 	// One secret signs the OAuth state for every integration; each handler
 	// domain-separates it by folding its integration name into the mac
-	// (see linking.SignState).
+	// (see link.SignState).
 	oauthStateSecret := os.Getenv("OAUTH_STATE_SECRET")
 	if oauthStateSecret == "" {
 		log.Fatal("fatal: OAUTH_STATE_SECRET is required")
