@@ -1,4 +1,9 @@
-package gworkspace
+// Package linking holds the shared code real integrations turned out to need.
+// Each integration lives in its own subpackage (gworkspace, spotify); this
+// root package only grows when the same code is discovered in more than one
+// of them — currently the HMAC-signed OAuth state parameter, which every
+// SPA-callback OAuth flow here mints and verifies identically.
+package linking
 
 import (
 	"crypto/hmac"
@@ -9,26 +14,26 @@ import (
 	"time"
 )
 
-// stateTTL bounds how long a minted consent URL can be completed. Long enough
-// for a human to read Google's consent screen, short enough that a leaked
-// state goes stale quickly.
-const stateTTL = 15 * time.Minute
+// StateTTL bounds how long a minted consent URL can be completed. Long enough
+// for a human to read the provider's consent screen, short enough that a
+// leaked state goes stale quickly.
+const StateTTL = 15 * time.Minute
 
-// signState builds the OAuth state parameter: `<unix-expiry>.<base64url mac>`
+// SignState builds the OAuth state parameter: `<unix-expiry>.<base64url mac>`
 // with mac = HMAC-SHA256(owner NUL expiry). Binding the owner into the mac —
 // verified against the caller's JWT identity on connect — stops the classic
 // OAuth CSRF where a victim is tricked into completing the flow with an
 // attacker's code, and needs no server-side state store.
-func signState(secret []byte, owner string, expiry time.Time) string {
+func SignState(secret []byte, owner string, expiry time.Time) string {
 	exp := strconv.FormatInt(expiry.Unix(), 10)
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(owner + "\x00" + exp))
 	return exp + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// verifyState checks that state was minted by signState for this owner and
+// VerifyState checks that state was minted by SignState for this owner and
 // has not expired.
-func verifyState(secret []byte, state, owner string, now time.Time) bool {
+func VerifyState(secret []byte, state, owner string, now time.Time) bool {
 	exp, macB64, ok := strings.Cut(state, ".")
 	if !ok {
 		return false

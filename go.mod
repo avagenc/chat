@@ -10,11 +10,14 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.17.3
+	github.com/zmb3/spotify/v2 v2.4.3
 	go.avagenc.com/ava v0.6.0
+	go.avagenc.com/yori v0.2.0
 	go.avagenc.com/zee v0.6.0
-	go.naturallyfunny.dev/adk v1.28.0
+	go.naturallyfunny.dev/adk v1.30.0
 	go.naturallyfunny.dev/api v1.15.0
 	go.naturallyfunny.dev/postera v0.21.1
+	go.naturallyfunny.dev/spotify v0.7.0
 	go.naturallyfunny.dev/tuya v0.5.0
 	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.58.0
@@ -89,7 +92,10 @@ require (
 	rsc.io/ordered v1.1.1 // indirect
 )
 
-// TEMPORARY: go.avagenc.com/rafal is not yet registered on the go.avagenc.com
-// vanity-import redirect — `go get`/`go mod tidy` 404s on it. Points at the
-// local checkout so this repo still builds; remove once the redirect is live.
+// TEMPORARY: go.avagenc.com/rafal and go.avagenc.com/yori are not yet
+// registered on the go.avagenc.com vanity-import redirect — `go get`/
+// `go mod tidy` 404s on them. Points at the local checkouts so this repo
+// still builds; remove once the redirect is live.
 replace go.avagenc.com/rafal => ../rafal
+
+replace go.avagenc.com/yori => ../yori
