@@ -11,7 +11,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: asia-southeast1
       REPO_NAME: docker
       SERVICE_NAME: chat-http
