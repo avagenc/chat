@@ -91,7 +91,7 @@ jobs:
             LINKING_REDIRECT_URL=${{ vars.LINKING_REDIRECT_URL }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
-            FIREBASE_DATABASE_ID=identity
+            FIRESTORE_DATABASE_ID=(default)
             GCP_RUNTIME_SA_EMAIL=${{ vars.GCP_RUNTIME_SA_EMAIL }}
             GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             CLOUD_TASKS_LOCATION_ID=${{ env.REGION }}
