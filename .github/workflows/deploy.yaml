@@ -86,7 +86,7 @@ jobs:
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
-            LINK_REDIRECT_URL=${{ vars.LINKING_REDIRECT_URL }}
+            LINK_REDIRECT_URL=${{ vars.LINK_REDIRECT_URL }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             FIRESTORE_DATABASE_ID=(default)
