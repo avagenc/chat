@@ -72,8 +72,7 @@ jobs:
             --min-instances=0
             --max-instances=1
             --cpu-boost
-            --service-account=${{ vars.GCP_SA_EMAIL }}
-
+            --service-account=${{ vars.GCP_RUNTIME_SA_EMAIL }}
           env_vars: |
             APP_ENV=${{ env.APP_ENV }}
             HOST_URL=${{ vars.HOST_URL }}
