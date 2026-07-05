@@ -21,6 +21,9 @@ import (
 	"google.golang.org/genai"
 )
 
+//go:embed instruction.txt
+var kindInstruction string
+
 type handler struct {
 	runner *runner.Runner
 	biller *wallet.Biller
@@ -62,7 +65,10 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: ""}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: kindInstruction,
+			agent.RunInstructionDeltaKey:          "",
+		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
 	var usage wallet.Usage
@@ -136,7 +142,10 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: avaRanByPosteraInstruction}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: kindInstruction,
+			agent.RunInstructionDeltaKey:          avaRanByPosteraInstruction,
+		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
 	var usage wallet.Usage

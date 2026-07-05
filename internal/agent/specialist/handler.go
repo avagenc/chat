@@ -19,6 +19,16 @@ import (
 	"google.golang.org/genai"
 )
 
+// KindInstruction is the specialist-kind behavioral layer, injected into the
+// KindSpecificInstructionDeltaKey on every specialist run. It is exported
+// because a specialist runs from two entry points that both must set it: this
+// handler (human → specialist) and Ava's subagent (Ava → specialist, wired in
+// main). The ava package cannot //go:embed a file outside its own directory, so
+// main passes this string to ava.NewSubAgent.
+//
+//go:embed instruction.txt
+var KindInstruction string
+
 type handler struct {
 	runner *runner.Runner
 	biller *wallet.Biller
@@ -66,7 +76,10 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByHumanInstruction}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: KindInstruction,
+			agent.RunInstructionDeltaKey:          specialistRanByHumanInstruction,
+		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
 	var usage wallet.Usage

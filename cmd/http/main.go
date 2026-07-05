@@ -333,9 +333,12 @@ func main() {
 		log.Fatalf("fatal: init postarius: %v", err)
 	}
 	// 1. 7. 1. Sub Agents
-	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller)
-	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller)
-	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller)
+	// The subagent runs a specialist, so it seeds the specialist-kind instruction
+	// (the same layer specialist.HandleHuman injects) — not Ava's. The ava package
+	// cannot embed a file outside its own tree, so the string is passed here.
+	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.KindInstruction)
+	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.KindInstruction)
+	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.KindInstruction)
 	// 1. 7. 2. ADK Agent
 	avaAgent, err := ava.New(ava.Config{
 		Model:                 agentModel,
