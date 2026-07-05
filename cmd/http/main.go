@@ -4,7 +4,9 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
@@ -27,6 +29,7 @@ import (
 	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
@@ -178,14 +181,22 @@ func main() {
 	if googleClientSecret == "" {
 		log.Fatal("fatal: GOOGLE_CLIENT_SECRET is required")
 	}
-	// The single frontend callback page every linking provider redirects the
-	// browser to after consent (the page routes by the integration segment in
-	// the state parameter). Must be registered verbatim as an authorized
-	// redirect URI at each provider: the OAuth client in Google Cloud Console
-	// and the app in the Spotify Developer Dashboard.
-	linkRedirectURL := os.Getenv("LINK_REDIRECT_URL")
-	if linkRedirectURL == "" {
-		log.Fatal("fatal: LINK_REDIRECT_URL is required")
+	// The web app origin the OAuth flow redirects back to after consent. Each
+	// linking provider gets its own callback path, /link/callback/<integration>,
+	// derived from this origin; every such URL must be registered verbatim as an
+	// authorized redirect URI at that provider (Google Cloud Console, Spotify
+	// Developer Dashboard).
+	webAppURL := os.Getenv("WEB_APP_URL")
+	if webAppURL == "" {
+		log.Fatal("fatal: WEB_APP_URL is required")
+	}
+	gworkspaceRedirectURL, err := url.JoinPath(webAppURL, "link", "callback", "gworkspace")
+	if err != nil {
+		log.Fatalf("fatal: build gworkspace redirect URL: %v", err)
+	}
+	spotifyRedirectURL, err := url.JoinPath(webAppURL, "link", "callback", "spotify")
+	if err != nil {
+		log.Fatalf("fatal: build spotify redirect URL: %v", err)
 	}
 	gworkspaceTokenStore := gworkspacefirestore.NewTokenStore(firestoreClient, gworkspacefirestore.WithCollection("gworkspace_tokens"))
 	// One OAuth refresh token spans Calendar, Gmail, and Contacts — the client
@@ -197,7 +208,7 @@ func main() {
 	gworkspaceClient := gworkspace.NewClient(gworkspaceTokenStore, &oauth2.Config{
 		ClientID:     googleClientID,
 		ClientSecret: googleClientSecret,
-		RedirectURL:  linkRedirectURL,
+		RedirectURL:  gworkspaceRedirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       gworkspaceScopes,
 	})
@@ -233,7 +244,7 @@ func main() {
 	spotifyClient := spotify.New(spotifyTokenStore, spotifyauth.New(
 		spotifyauth.WithClientID(spotifyClientID),
 		spotifyauth.WithClientSecret(spotifyClientSecret),
-		spotifyauth.WithRedirectURL(linkRedirectURL),
+		spotifyauth.WithRedirectURL(spotifyRedirectURL),
 		spotifyauth.WithScopes(spotify.RequiredScopes...),
 	))
 	// 1. 6. 1. ADK Agent
@@ -382,6 +393,26 @@ func main() {
 	r.Use(chiMiddleware.RealIP)
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
+	// The browser SPA is served from a different origin than this API, so every
+	// request carrying an Authorization or custom header is preceded by a CORS
+	// preflight. Handle it before the auth groups so an unauthenticated OPTIONS
+	// never reaches a protected route. Bearer tokens, not cookies, carry
+	// identity — so credentials stay off.
+	corsAllowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if corsAllowedOrigins == "" {
+		log.Fatal("fatal: CORS_ALLOWED_ORIGINS is required")
+	}
+	allowedOrigins := strings.Split(corsAllowedOrigins, ",")
+	for i := range allowedOrigins {
+		allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+	}
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "session-id", "time-zone"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
 	svcEnv := os.Getenv("APP_ENV")
 	if svcEnv == "" {
 		log.Fatal("fatal: APP_ENV is required")

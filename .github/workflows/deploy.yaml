@@ -19,10 +19,6 @@ jobs:
       APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
-      # Fail fast if any secret/variable this workflow injects resolves empty
-      # (missing or misnamed in the GitHub environment). main.go fatals on a
-      # missing env var at boot, so an empty value here otherwise only
-      # surfaces as an opaque Cloud Run start-timeout after a full build.
       - name: Validate Deploy Configuration
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
@@ -37,7 +33,8 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-          LINK_REDIRECT_URL: ${{ vars.LINK_REDIRECT_URL }}
+          WEB_APP_URL: ${{ vars.WEB_APP_URL }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           OAUTH_STATE_SECRET: ${{ secrets.OAUTH_STATE_SECRET }}
           POSTERA_DB_URL: ${{ secrets.POSTERA_DB_URL }}
           WALLET_DB_URL: ${{ secrets.WALLET_DB_URL }}
@@ -46,8 +43,8 @@ jobs:
           for name in GCP_SA_KEY GCP_PROJECT_ID GCP_RUNTIME_SA_EMAIL HOST_URL \
             ZEP_API_KEY GEMINI_API_KEY TUYA_ACCESS_ID TUYA_ACCESS_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET SPOTIFY_CLIENT_ID \
-            SPOTIFY_CLIENT_SECRET LINK_REDIRECT_URL OAUTH_STATE_SECRET \
-            POSTERA_DB_URL WALLET_DB_URL; do
+            SPOTIFY_CLIENT_SECRET WEB_APP_URL CORS_ALLOWED_ORIGINS \
+            OAUTH_STATE_SECRET POSTERA_DB_URL WALLET_DB_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is empty — set it as a secret/variable in the '${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}' GitHub environment"
               missing=1
@@ -85,8 +82,6 @@ jobs:
           go-version: stable
           cache: false
 
-      # Schema changes land before the new revision serves; the app runtime
-      # never runs DDL (it only validates the tables exist at boot).
       - name: Migrate Wallet Database
         env:
           WALLET_DB_URL: ${{ secrets.WALLET_DB_URL }}
@@ -121,7 +116,8 @@ jobs:
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
-            LINK_REDIRECT_URL=${{ vars.LINK_REDIRECT_URL }}
+            WEB_APP_URL=${{ vars.WEB_APP_URL }}
+            CORS_ALLOWED_ORIGINS=${{ vars.CORS_ALLOWED_ORIGINS }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             FIRESTORE_DATABASE_ID=(default)

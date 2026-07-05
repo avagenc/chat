@@ -33,14 +33,16 @@ idiomatic untuk arsitektur SPA + JSON API:
    dengan code milik penyerang) tanpa simpan state di server; nama integrasi
    di dalam mac men-domain-separate secret bersama itu (state gworkspace
    tidak pernah lolos verifikasi di endpoint spotify). Segmen pertama sengaja
-   terbaca: halaman callback FE memakainya untuk routing (lihat poin
-   berikut) — selebihnya round-trip verbatim.
-3. **Satu halaman callback FE untuk semua integrasi** (env
-   `LINKING_REDIRECT_URL`, mis. `/linking/callback`). Provider mana pun
-   me-redirect ke halaman yang sama; halaman membaca segmen pertama `state`
-   (`state.split('.')[0]` → `gworkspace` | `spotify`) lalu POST ke
-   `/{integration}/connection`. URL ini wajib terdaftar verbatim di SEMUA
-   provider (Google Cloud Console dan Spotify Developer Dashboard).
+   terbaca hanya sebagai bahan CSRF; FE tidak lagi mem-parse-nya untuk routing
+   (lihat poin berikut) — `state` di-round-trip verbatim.
+3. **Halaman callback FE per-integrasi**: `WEB_APP_URL/link/callback/{integration}`
+   (mis. `/link/callback/gworkspace`, `/link/callback/spotify`). Backend
+   menurunkan redirect URI tiap provider dari env `WEB_APP_URL` + segmen path
+   integrasi, jadi tiap URL wajib terdaftar verbatim di provider-nya
+   (Google Cloud Console untuk gworkspace, Spotify Developer Dashboard untuk
+   spotify). FE tahu integrasi dari route param, bukan dari isi `state` —
+   `state` (token HMAC milik backend) tetap opaque di sisi FE. Ini menggantikan
+   desain lama "satu halaman callback bersama yang mem-parse `state`".
 4. **Scope = gabungan Calendar + Gmail + Contacts** (mengikuti wiring rafal).
    Satu consent screen meminta semuanya sekaligus; kalau user meng-uncheck
    salah satu, connect ditolak (400) dan flow harus diulang. Ini disengaja:
@@ -67,16 +69,16 @@ di-mint (state expire) — mint tepat sebelum dipakai, jangan di-cache.
 
 #### 2. Terima callback dari Google
 
-Setelah user setuju, Google me-redirect browser ke halaman callback FE
-bersama yang di-set di env `LINKING_REDIRECT_URL`, dengan query param:
+Setelah user setuju, Google me-redirect browser ke halaman callback
+per-integrasi `WEB_APP_URL/link/callback/gworkspace`, dengan query param:
 
 ```
-https://<halaman-callback-fe>?code=4/0A...&state=gworkspace.1751...abc
+https://<web-app>/link/callback/gworkspace?code=4/0A...&state=gworkspace.1751...abc
 ```
 
-Halaman callback FE mengambil `code` dan `state` dari query param apa
-adanya, lalu routing dari segmen pertama `state`
-(`state.split('.')[0]` → di sini `gworkspace`). Kalau Google mengirim
+Integrasi diketahui dari route (`/link/callback/{integration}`), bukan dari
+isi `state`. Halaman mengambil `code` dan `state` dari query param apa adanya
+lalu POST ke `/{integration}/connection`. Kalau Google mengirim
 `?error=access_denied` (user menekan cancel), tampilkan pesan gagal —
 tidak perlu memanggil API.
 
@@ -129,12 +131,17 @@ DELETE /gworkspace/connection
 3. **Gmail adalah restricted scope.** OAuth app wajib melewati verifikasi
    Google sebelum bisa dipakai user umum di production; selama development
    daftarkan penguji sebagai *test users* di OAuth consent screen.
-4. **Env baru wajib di-set** (dua-duanya fatal kalau kosong; dipakai bersama
-   semua integrasi linking):
-   - `LINKING_REDIRECT_URL` — halaman callback FE bersama, wajib terdaftar
-     **verbatim** sebagai authorized redirect URI di OAuth client Google
-     Cloud Console (beda trailing slash pun ditolak Google) DAN di app
-     Spotify Developer Dashboard.
+4. **Env wajib di-set** (fatal kalau kosong):
+   - `WEB_APP_URL` — origin web app (mis. `https://chat.avagenc.com`).
+     Backend menurunkan redirect URI tiap integrasi darinya
+     (`WEB_APP_URL/link/callback/gworkspace`, `.../spotify`); tiap URL wajib
+     terdaftar **verbatim** sebagai authorized redirect URI di provider-nya
+     (beda trailing slash pun ditolak Google). Origin ini juga jadi dasar
+     `CORS_ALLOWED_ORIGINS`.
+   - `CORS_ALLOWED_ORIGINS` — daftar origin yang boleh memanggil API dari
+     browser, dipisah koma (mis. `http://localhost:5173,https://chat.avagenc.com`).
+     Wajib memuat origin tempat SPA disajikan; tanpa ini preflight CORS gagal
+     dan **semua** fetch dari browser ditolak.
    - `OAUTH_STATE_SECRET` — string random panjang (mis.
      `openssl rand -base64 32`), satu untuk semua integrasi (domain
      separation via nama integrasi di mac); mengganti secret membatalkan
@@ -159,10 +166,10 @@ POST   /spotify/connection   {"code", "state"} → 204 | 400 (state/scopes/code)
 DELETE /spotify/connection   → 204 | 404 (belum connect)
 ```
 
-Spotify me-redirect ke halaman callback FE bersama yang sama
-(`LINKING_REDIRECT_URL`) dengan `?code=&state=spotify.…` (atau
+Spotify me-redirect ke halaman callback per-integrasinya sendiri
+(`WEB_APP_URL/link/callback/spotify`) dengan `?code=&state=spotify.…` (atau
 `?error=access_denied` kalau user menekan cancel — tampilkan gagal, tidak
-perlu memanggil API); halaman routing dari segmen pertama `state`.
+perlu memanggil API); integrasi diketahui dari route, bukan dari `state`.
 
 Deltas dari Google Workspace:
 
@@ -171,9 +178,10 @@ Deltas dari Google Workspace:
    kurang satu → 400, ulang flow.
 2. **Env baru wajib di-set** (fatal kalau kosong):
    - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — OAuth app di Spotify
-     Developer Dashboard. (`LINKING_REDIRECT_URL` dan `OAUTH_STATE_SECRET`
-     dipakai bersama — lihat section Google Workspace; daftarkan
-     `LINKING_REDIRECT_URL` verbatim juga di app dashboard Spotify.)
+     Developer Dashboard. (`WEB_APP_URL`, `CORS_ALLOWED_ORIGINS`, dan
+     `OAUTH_STATE_SECRET` dipakai bersama — lihat section Google Workspace;
+     daftarkan `WEB_APP_URL/link/callback/spotify` verbatim di app dashboard
+     Spotify.)
 3. **Disconnect tidak me-revoke grant di sisi Spotify** — aplikasi tetap
    tercantum di spotify.com/account/apps sampai user mencabutnya sendiri.
 4. **App Spotify default development mode** — hanya user yang di-allowlist di
