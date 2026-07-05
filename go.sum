@@ -258,12 +258,12 @@ go.naturallyfunny.dev/adk v1.30.0 h1:98jm9pPI234eKJz5W770aVlqu+KPS2ClD2NK716ery4
 go.naturallyfunny.dev/adk v1.30.0/go.mod h1:ER5mHACsj07jvzm0bvDiuIOQuGnGMiE8z3TBzYDaZgo=
 go.naturallyfunny.dev/api v1.15.0 h1:gEnuFAAMpbWK2T+YDdqTdKe6dHmXEAUP8QCIZm+WAuQ=
 go.naturallyfunny.dev/api v1.15.0/go.mod h1:l8a+fA+ze+Y7m+QE0w6e8wyh/N3pvvE90R1WEqDMGYM=
-go.naturallyfunny.dev/gworkspace v0.5.0 h1:sHcXDqqYKtOJ8qDRnOd3CqzZKbEQkpcqG8ExJVvQUWM=
-go.naturallyfunny.dev/gworkspace v0.5.0/go.mod h1:36Gi7GzhmdwHw5Or42TygkLxz/iPbddRpfo8zzOOEgs=
+go.naturallyfunny.dev/gworkspace v0.6.0 h1:OgEZCLnGHicsy+4Y/o06vkeplwtqvGBebE8R7Meszk0=
+go.naturallyfunny.dev/gworkspace v0.6.0/go.mod h1:36Gi7GzhmdwHw5Or42TygkLxz/iPbddRpfo8zzOOEgs=
 go.naturallyfunny.dev/postera v0.21.1 h1:o9AzHlXoBGU8F6+S10rHKfZpPPnGUt9LS3lVsMRo9Zs=
 go.naturallyfunny.dev/postera v0.21.1/go.mod h1:eghaqCsdszrpGcR0tY0HcPzla+g4ZF+ItJ7EOQ5ttQk=
-go.naturallyfunny.dev/spotify v0.7.0 h1:g7SxklSpz9gs/4GuJYMC+iaIrZP1CCwJfMyeT62jMuU=
-go.naturallyfunny.dev/spotify v0.7.0/go.mod h1:ZXKhUK13qmgPx8vec2SnXTCT0U8piS77jmoI3dpO+t0=
+go.naturallyfunny.dev/spotify v0.8.0 h1:2LxmrY55MLf1yj0naGk9GKOSqH208XBLkYD+xbtMEEc=
+go.naturallyfunny.dev/spotify v0.8.0/go.mod h1:ZXKhUK13qmgPx8vec2SnXTCT0U8piS77jmoI3dpO+t0=
 go.naturallyfunny.dev/tuya v0.5.0 h1:vl30xLVNIcicC5vPcYfQpfbnC83BzQ+ObrJDPGHSZAA=
 go.naturallyfunny.dev/tuya v0.5.0/go.mod h1:WoVgXT3s3XpOKijQiFmGuKoc3rFnLB9bAEh5QBnqOHg=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=

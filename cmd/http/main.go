@@ -457,12 +457,14 @@ func main() {
 		// 5. 2. 5. 0. Google Workspace
 		r.Route("/gworkspace", func(r chi.Router) {
 			r.Get("/auth-url", gworkspaceLinkHandler.HandleAuthURL)
+			r.Get("/connection", gworkspaceLinkHandler.HandleStatus)
 			r.Post("/connection", gworkspaceLinkHandler.HandleConnect)
 			r.Delete("/connection", gworkspaceLinkHandler.HandleDisconnect)
 		})
 		// 5. 2. 5. 1. Spotify
 		r.Route("/spotify", func(r chi.Router) {
 			r.Get("/auth-url", spotifyLinkHandler.HandleAuthURL)
+			r.Get("/connection", spotifyLinkHandler.HandleStatus)
 			r.Post("/connection", spotifyLinkHandler.HandleConnect)
 			r.Delete("/connection", spotifyLinkHandler.HandleDisconnect)
 		})

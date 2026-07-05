@@ -22,11 +22,12 @@ import (
 )
 
 // Connector is the slice of *gworkspace.Client this handler needs: mint a
-// consent URL, trade the callback code for a stored refresh token, and forget
-// that token again.
+// consent URL, trade the callback code for a stored refresh token, report
+// whether one is stored, and forget it again.
 type Connector interface {
 	AuthURL(state string) string
 	Connect(ctx context.Context, owner, code string) error
+	Connected(ctx context.Context, owner string) (bool, error)
 	Disconnect(ctx context.Context, owner string) error
 }
 
@@ -61,6 +62,26 @@ func (h *Handler) HandleAuthURL(w http.ResponseWriter, r *http.Request) {
 	apihttp.WriteJSON(w, http.StatusOK, struct {
 		URL string `json:"url"`
 	}{h.connector.AuthURL(state)})
+}
+
+// HandleStatus reports whether the caller has a Google Workspace account
+// connected, so the frontend can render "Terhubung" vs "Hubungkan". Storage
+// truth only — it does not probe the grant at Google.
+func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
+	userID, err := apiuser.IDFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
+		return
+	}
+
+	connected, err := h.connector.Connected(r.Context(), userID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
+		return
+	}
+	apihttp.WriteJSON(w, http.StatusOK, struct {
+		Connected bool `json:"connected"`
+	}{connected})
 }
 
 // HandleConnect completes the OAuth flow: it verifies the state belongs to
