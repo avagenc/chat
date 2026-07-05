@@ -86,7 +86,11 @@ func main() {
 	if geminiAPIKey == "" {
 		log.Fatal("fatal: GEMINI_API_KEY is required")
 	}
-	agentModel, err := gemini.NewModel(context.Background(), "gemini-3.1-flash-preview", &genai.ClientConfig{
+	// gemini-3.1-flash-lite is a GA (non-preview) model id on purpose: the
+	// previous "gemini-3.1-flash-preview" was a preview name that stopped
+	// resolving (404 on generateContent), which failed every agent run at the
+	// model call — a stable id avoids that class of outage.
+	agentModel, err := gemini.NewModel(context.Background(), "gemini-3.1-flash-lite", &genai.ClientConfig{
 		APIKey: geminiAPIKey,
 	})
 	if err != nil {
@@ -108,10 +112,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: init wallet ledger: %v", err)
 	}
-	// Rates in rupiah per million tokens for gemini-3.1-flash-preview, Gemini
-	// price card × USD/IDR × margin. Hardcoded, not env: the snapshot is
-	// recorded on every ledger entry, and explicit wiring is the convention.
-	// Update here when the model, FX, or margin moves.
+	// Rates in rupiah per million tokens, Gemini price card × USD/IDR × margin.
+	// Hardcoded, not env: the snapshot is recorded on every ledger entry, and
+	// explicit wiring is the convention. Update here when the model, FX, or
+	// margin moves. NOTE: these numbers were set for a full "flash" model; the
+	// agent now runs gemini-3.1-flash-lite (cheaper), so recalibrate against the
+	// Flash-Lite price card to avoid overcharging.
 	biller := internalwallet.NewBiller(walletLedger, internalwallet.Price{
 		InputPerMTok:  10_000,
 		CachedPerMTok: 2_500,
