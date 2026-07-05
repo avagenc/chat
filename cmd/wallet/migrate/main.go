@@ -24,7 +24,7 @@ func main() {
 
 	// Parse custom flags if any, or just goose commands
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: go run cmd/walletmigrate/main.go [options] <command> [arguments]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: go run cmd/wallet/migrate/main.go [options] <command> [arguments]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  up                   Migrate the database to the most recent version\n")
 		fmt.Fprintf(os.Stderr, "  up-by-one            Migrate the database up by 1 version\n")
@@ -95,6 +95,6 @@ func run(ctx context.Context, dbURL, command string, args []string) error {
 		return err
 	}
 
-	log.Printf("Migration command %q completed successfully", command)
+	log.Printf("Migration command %q completed successfully (args=%v)", command, args)
 	return nil
 }
