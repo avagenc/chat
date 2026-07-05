@@ -13,7 +13,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/zmb3/spotify/v2 v2.4.3
-	go.avagenc.com/ava v0.6.0
+	go.avagenc.com/ava v0.7.0
 	go.avagenc.com/yori v0.2.0
 	go.avagenc.com/zee v0.6.0
 	go.naturallyfunny.dev/adk v1.32.0
