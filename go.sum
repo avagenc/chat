@@ -260,6 +260,8 @@ go.naturallyfunny.dev/adk v1.30.0 h1:98jm9pPI234eKJz5W770aVlqu+KPS2ClD2NK716ery4
 go.naturallyfunny.dev/adk v1.30.0/go.mod h1:ER5mHACsj07jvzm0bvDiuIOQuGnGMiE8z3TBzYDaZgo=
 go.naturallyfunny.dev/adk v1.31.0 h1:DeIgfYT4ZU3axEXtFOXHawmTZnDEu2/wNXOAKbwHK8I=
 go.naturallyfunny.dev/adk v1.31.0/go.mod h1:ER5mHACsj07jvzm0bvDiuIOQuGnGMiE8z3TBzYDaZgo=
+go.naturallyfunny.dev/adk v1.32.0 h1:RkaSUNp6wONSigDnT1cX8eWHhE4RXzizUEIwuWRUWlc=
+go.naturallyfunny.dev/adk v1.32.0/go.mod h1:ER5mHACsj07jvzm0bvDiuIOQuGnGMiE8z3TBzYDaZgo=
 go.naturallyfunny.dev/api v1.15.0 h1:gEnuFAAMpbWK2T+YDdqTdKe6dHmXEAUP8QCIZm+WAuQ=
 go.naturallyfunny.dev/api v1.15.0/go.mod h1:l8a+fA+ze+Y7m+QE0w6e8wyh/N3pvvE90R1WEqDMGYM=
 go.naturallyfunny.dev/gworkspace v0.6.0 h1:OgEZCLnGHicsy+4Y/o06vkeplwtqvGBebE8R7Meszk0=
