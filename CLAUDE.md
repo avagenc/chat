@@ -110,7 +110,7 @@ Endpoints (semua DELETE balas `204 No Content`):
 
 Spotify sama persis dengan prefix `/spotify` (token di Firestore `spotify_tokens`).
 
-Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `WEB_APP_URL/link/callback/{integration}` (bukan ke API) — integrasi diketahui dari route, `state` tetap opaque di FE; backend menurunkan redirect URI tiap integrasi dari `WEB_APP_URL`. Semua endpoint linking tetap di belakang auth Firebase.
+Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `WEB_APP_URL/{integration}/link/callback` (bukan ke API) — integrasi diketahui dari route, `state` tetap opaque di FE; backend menurunkan redirect URI tiap integrasi dari `WEB_APP_URL`. Semua endpoint linking tetap di belakang auth Firebase.
 
 ## Auth flow
 
@@ -127,7 +127,7 @@ Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User 
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) — refresh token user di-resolve lewat client ini |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | OAuth app Spotify (yori + linking) — refresh token user di-resolve lewat client ini |
-| `WEB_APP_URL` | Origin web app SPA; backend menurunkan redirect URI tiap integrasi (`WEB_APP_URL/link/callback/{gworkspace,spotify}`) darinya — tiap URL wajib terdaftar verbatim di provider-nya (Google Cloud Console, Spotify Developer Dashboard) |
+| `WEB_APP_URL` | Origin web app SPA; backend menurunkan redirect URI tiap integrasi (`WEB_APP_URL/{gworkspace,spotify}/link/callback`) darinya — tiap URL wajib terdaftar verbatim di provider-nya (Google Cloud Console, Spotify Developer Dashboard) |
 | `CORS_ALLOWED_ORIGINS` | Daftar origin (dipisah koma) yang boleh memanggil API dari browser; wajib memuat origin tempat SPA disajikan |
 | `OAUTH_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state — satu untuk semua integrasi linking (domain separation via nama integrasi di mac) |
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`), token gworkspace (`gworkspace_tokens`) & token spotify (`spotify_tokens`) |

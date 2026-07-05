@@ -182,7 +182,7 @@ func main() {
 		log.Fatal("fatal: GOOGLE_CLIENT_SECRET is required")
 	}
 	// The web app origin the OAuth flow redirects back to after consent. Each
-	// linking provider gets its own callback path, /link/callback/<integration>,
+	// linking provider gets its own callback path, <integration>/link/callback,
 	// derived from this origin; every such URL must be registered verbatim as an
 	// authorized redirect URI at that provider (Google Cloud Console, Spotify
 	// Developer Dashboard).
@@ -190,11 +190,11 @@ func main() {
 	if webAppURL == "" {
 		log.Fatal("fatal: WEB_APP_URL is required")
 	}
-	gworkspaceRedirectURL, err := url.JoinPath(webAppURL, "link", "callback", "gworkspace")
+	gworkspaceRedirectURL, err := url.JoinPath(webAppURL, "gworkspace", "link", "callback")
 	if err != nil {
 		log.Fatalf("fatal: build gworkspace redirect URL: %v", err)
 	}
-	spotifyRedirectURL, err := url.JoinPath(webAppURL, "link", "callback", "spotify")
+	spotifyRedirectURL, err := url.JoinPath(webAppURL, "spotify", "link", "callback")
 	if err != nil {
 		log.Fatalf("fatal: build spotify redirect URL: %v", err)
 	}
