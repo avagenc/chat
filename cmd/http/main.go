@@ -86,7 +86,7 @@ func main() {
 	if geminiAPIKey == "" {
 		log.Fatal("fatal: GEMINI_API_KEY is required")
 	}
-	agentModel, err := gemini.NewModel(context.Background(), "gemini-3-flash-preview", &genai.ClientConfig{
+	agentModel, err := gemini.NewModel(context.Background(), "gemini-3.1-flash-preview", &genai.ClientConfig{
 		APIKey: geminiAPIKey,
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: init wallet ledger: %v", err)
 	}
-	// Rates in rupiah per million tokens for gemini-3-flash-preview, Gemini
+	// Rates in rupiah per million tokens for gemini-3.1-flash-preview, Gemini
 	// price card × USD/IDR × margin. Hardcoded, not env: the snapshot is
 	// recorded on every ledger entry, and explicit wiring is the convention.
 	// Update here when the model, FX, or margin moves.
