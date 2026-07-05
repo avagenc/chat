@@ -81,10 +81,16 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		usage.Add(event)
-		if event.IsFinalResponse() && event.Content != nil {
+		if event.IsFinalResponse() {
+			// An empty final response is a valid outcome (the agent acted but
+			// had nothing to say). Return 200 with an empty body rather than
+			// treating a silent turn as a failure; a textless response is not
+			// persisted to the thread (see adk/zep).
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			apihttp.WriteJSON(w, http.StatusOK, struct {
 				Response string `json:"response"`

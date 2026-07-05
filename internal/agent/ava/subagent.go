@@ -74,10 +74,15 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 			return "", fmt.Errorf("subagent %s: %w", s.name, err)
 		}
 		usage.Add(event)
-		if event.IsFinalResponse() && event.Content != nil {
+		if event.IsFinalResponse() {
+			// An empty final response is valid — the specialist may act without
+			// anything to say back to Ava. Return it (possibly empty) instead of
+			// treating a silent turn as a failure.
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			return resp.String(), nil
 		}

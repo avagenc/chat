@@ -16,7 +16,7 @@ require (
 	go.avagenc.com/ava v0.6.0
 	go.avagenc.com/yori v0.2.0
 	go.avagenc.com/zee v0.6.0
-	go.naturallyfunny.dev/adk v1.30.0
+	go.naturallyfunny.dev/adk v1.31.0
 	go.naturallyfunny.dev/api v1.15.0
 	go.naturallyfunny.dev/postera v0.21.1
 	go.naturallyfunny.dev/spotify v0.8.0

@@ -20,6 +20,7 @@ import (
 	knowledgezep "github.com/avagenc/chat/internal/knowledge/zep"
 	gworkspacelink "github.com/avagenc/chat/internal/link/gworkspace"
 	spotifylink "github.com/avagenc/chat/internal/link/spotify"
+	tuyalink "github.com/avagenc/chat/internal/link/tuya"
 	internalpostera "github.com/avagenc/chat/internal/postera"
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
@@ -372,6 +373,11 @@ func main() {
 	// 2. 1. Spotify — reuses the same spotify client yori holds; yori only
 	// consumes the stored token, linking manages it.
 	spotifyLinkHandler := spotifylink.NewHandler(spotifyClient, []byte(oauthStateSecret))
+	// 2. 2. Tuya — status only; accounts are linked manually (VIP onboarding),
+	// so there is no auth-url/connect/disconnect flow. Reuses the same Tuya
+	// client zee holds; the frontend reads status to render "Terhubung" vs the
+	// VIP prompt.
+	tuyaLinkHandler := tuyalink.NewHandler(tuyaAppClient)
 	// 3. MEMORY — one package per memory type
 	// 3. 0. Session (episodic)
 	sessionStore := sessionzep.NewStore(zepClient)
@@ -498,6 +504,10 @@ func main() {
 			r.Get("/connection", spotifyLinkHandler.HandleStatus)
 			r.Post("/connection", spotifyLinkHandler.HandleConnect)
 			r.Delete("/connection", spotifyLinkHandler.HandleDisconnect)
+		})
+		// 5. 2. 5. 2. Tuya Smart — status only (manual VIP linking).
+		r.Route("/tuya", func(r chi.Router) {
+			r.Get("/connection", tuyaLinkHandler.HandleStatus)
 		})
 		// 5. 2. 6. Wallet — not behind the balance guard: an empty wallet
 		// must still be able to see its balance.
