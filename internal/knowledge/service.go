@@ -112,7 +112,6 @@ func (s *Service) Get(ctx context.Context, nodesQuery, edgesQuery *GraphQuery) (
 		}
 		return nil, fmt.Errorf("get edges for user %q: %w", userID, err)
 	}
-
 	return &Graph{
 		Nodes: nodes,
 		Edges: edges,

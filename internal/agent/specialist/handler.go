@@ -29,7 +29,7 @@ import (
 //go:embed instruction.txt
 var KindInstruction string
 
-type handler struct {
+type Handler struct {
 	runner *runner.Runner
 	biller *wallet.Biller
 	// agentName identifies which specialist this handler instance fronts
@@ -37,14 +37,14 @@ type handler struct {
 	agentName string
 }
 
-func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *handler {
-	return &handler{runner: r, biller: b, agentName: agentName}
+func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *Handler {
+	return &Handler{runner: r, biller: b, agentName: agentName}
 }
 
 //go:embed specialist-ran-by-human-instruction.txt
 var specialistRanByHumanInstruction string
 
-func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}

@@ -68,21 +68,19 @@ func NewService(store Store) *Service {
 	}
 }
 
-// ErrNotFound is the sentinel a Store returns when the backend has no such
-// session. The Service and Handler match it with errors.Is to map to a 404.
-var ErrNotFound = errors.New("session not found")
-
 // ErrForbidden is the authorization sentinel: the caller has no identity, or
 // the requested session belongs to someone else. Unlike ErrNotFound it never
 // comes from an adapter — the Service mints it.
 var ErrForbidden = errors.New("forbidden")
+// ErrNotFound is the sentinel a Store returns when the backend has no such
+// session. The Service and Handler match it with errors.Is to map to a 404.
+var ErrNotFound = errors.New("session not found")
 
 func (s *Service) GetMessages(ctx context.Context, sessionID string, query *MessagesQuery) (*MessageList, error) {
 	userID, err := user.IDFromContext(ctx)
 	if err != nil {
 		return nil, ErrForbidden
 	}
-
 	messages, err := s.store.Get(ctx, sessionID, query)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -90,11 +88,9 @@ func (s *Service) GetMessages(ctx context.Context, sessionID string, query *Mess
 		}
 		return nil, fmt.Errorf("get session %q: %w", sessionID, err)
 	}
-
 	if messages.UserID == nil || *messages.UserID != userID {
 		return nil, ErrForbidden
 	}
-
 	return messages, nil
 }
 
@@ -103,7 +99,6 @@ func (s *Service) ClearMessages(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return ErrForbidden
 	}
-
 	messages, err := s.store.Get(ctx, sessionID, &MessagesQuery{})
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -111,17 +106,14 @@ func (s *Service) ClearMessages(ctx context.Context, sessionID string) error {
 		}
 		return fmt.Errorf("get session %q: %w", sessionID, err)
 	}
-
 	if messages.UserID == nil || *messages.UserID != userID {
 		return ErrForbidden
 	}
-
 	if err := s.store.Delete(ctx, sessionID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return ErrNotFound
 		}
 		return fmt.Errorf("delete session %q: %w", sessionID, err)
 	}
-
 	return nil
 }

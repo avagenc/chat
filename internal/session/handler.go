@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
 	apihttp "go.naturallyfunny.dev/api/http"
 )
 
@@ -26,7 +25,6 @@ func optionalInt(value string) (*int, error) {
 	if value == "" {
 		return nil, nil
 	}
-
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return nil, errors.New("not an integer")
@@ -34,7 +32,6 @@ func optionalInt(value string) (*int, error) {
 	if parsed < 0 {
 		return nil, errors.New("must be non-negative")
 	}
-
 	return &parsed, nil
 }
 
@@ -74,18 +71,16 @@ func messagesQuery(r *http.Request) (*MessagesQuery, error) {
 }
 
 func (h *Handler) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "session-id")
+	sessionID := r.PathValue("sessionID")
 	if sessionID == "" {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
-
 	query, err := messagesQuery(r)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 		return
 	}
-
 	messages, err := h.service.GetMessages(r.Context(), sessionID, query)
 	if errors.Is(err, ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
@@ -99,17 +94,15 @@ func (h *Handler) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
 		return
 	}
-
 	apihttp.WriteJSON(w, http.StatusOK, messages)
 }
 
 func (h *Handler) HandleClearMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "session-id")
+	sessionID := r.PathValue("sessionID")
 	if sessionID == "" {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
 		return
 	}
-
 	err := h.service.ClearMessages(r.Context(), sessionID)
 	if errors.Is(err, ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
@@ -123,6 +116,5 @@ func (h *Handler) HandleClearMessages(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})
 		return
 	}
-
 	w.WriteHeader(http.StatusNoContent)
 }

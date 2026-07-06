@@ -24,16 +24,16 @@ import (
 //go:embed instruction.txt
 var kindInstruction string
 
-type handler struct {
+type Handler struct {
 	runner *runner.Runner
 	biller *wallet.Biller
 }
 
-func NewHandler(r *runner.Runner, b *wallet.Biller) *handler {
-	return &handler{runner: r, biller: b}
+func NewHandler(r *runner.Runner, b *wallet.Biller) *Handler {
+	return &Handler{runner: r, biller: b}
 }
 
-func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -70,7 +70,6 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 			agent.RunInstructionDeltaKey:          "",
 		}),
 	)
-	// Charge on every exit path: tokens consumed before an error are spent too.
 	var usage wallet.Usage
 	defer func() {
 		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
@@ -84,11 +83,6 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		}
 		usage.Add(event)
 		if event.IsFinalResponse() {
-			// An empty final response is legitimate: Ava orchestrates, and when
-			// a specialist has already answered in-thread she may have nothing
-			// to add. Return 200 with an empty body rather than treating a
-			// silent turn as a failure. A textless response is not persisted to
-			// the thread (see adk/zep), so nothing blank pollutes history.
 			var resp strings.Builder
 			if event.Content != nil {
 				for _, p := range event.Content.Parts {
@@ -97,7 +91,9 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 			}
 			apihttp.WriteJSON(w, http.StatusOK, struct {
 				Response string `json:"response"`
-			}{resp.String()})
+			}{
+				resp.String(),
+			})
 			return
 		}
 	}
@@ -107,7 +103,7 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 //go:embed ava-ran-by-postera-instruction.txt
 var avaRanByPosteraInstruction string
 
-func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "failed to read body"})
@@ -147,7 +143,6 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 			agent.RunInstructionDeltaKey:          avaRanByPosteraInstruction,
 		}),
 	)
-	// Charge on every exit path: tokens consumed before an error are spent too.
 	var usage wallet.Usage
 	defer func() {
 		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "postera"}, usage); err != nil {
@@ -161,11 +156,6 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		}
 		usage.Add(event)
 		if event.IsFinalResponse() {
-			// An empty final response is legitimate: Ava orchestrates, and when
-			// a specialist has already answered in-thread she may have nothing
-			// to add. Return 200 with an empty body rather than treating a
-			// silent turn as a failure. A textless response is not persisted to
-			// the thread (see adk/zep), so nothing blank pollutes history.
 			var resp strings.Builder
 			if event.Content != nil {
 				for _, p := range event.Content.Parts {

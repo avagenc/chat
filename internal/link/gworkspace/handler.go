@@ -57,7 +57,6 @@ func (h *Handler) HandleAuthURL(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return
 	}
-
 	state := link.SignState(h.stateSecret, integration, userID, time.Now().Add(link.StateTTL))
 	apihttp.WriteJSON(w, http.StatusOK, struct {
 		URL string `json:"url"`
@@ -73,7 +72,6 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return
 	}
-
 	connected, err := h.connector.Connected(r.Context(), userID)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "upstream error"})

@@ -25,7 +25,6 @@ func optionalInt(value string) (*int, error) {
 	if value == "" {
 		return nil, nil
 	}
-
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return nil, errors.New("not an integer")
@@ -33,7 +32,6 @@ func optionalInt(value string) (*int, error) {
 	if parsed < 0 {
 		return nil, errors.New("must be non-negative")
 	}
-
 	return &parsed, nil
 }
 

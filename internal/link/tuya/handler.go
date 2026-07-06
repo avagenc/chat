@@ -41,7 +41,6 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return
 	}
-
 	_, err = h.connector.Account(r.Context(), userID)
 	if errors.Is(err, tuya.ErrAccountNotLinked) {
 		apihttp.WriteJSON(w, http.StatusOK, struct {

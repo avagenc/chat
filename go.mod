@@ -6,8 +6,6 @@ require (
 	cloud.google.com/go/cloudtasks v1.18.0
 	firebase.google.com/go/v4 v4.20.0
 	github.com/getzep/zep-go/v3 v3.23.0
-	github.com/go-chi/chi/v5 v5.2.4
-	github.com/go-chi/cors v1.2.2
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.2

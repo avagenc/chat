@@ -23,18 +23,15 @@ func (g *PaymentGuard) DenyBlocked(next http.Handler) http.Handler {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "user identity missing"})
 			return
 		}
-
 		blocked, err := g.redisClient.SIsMember(r.Context(), "users:blocked:payment", userID).Result()
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "system integrity check failed"})
 			return
 		}
-
 		if blocked {
 			apihttp.WriteProblem(w, http.StatusPaymentRequired, map[string]any{"detail": "account suspended due to outstanding payment"})
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
