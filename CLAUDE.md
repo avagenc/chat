@@ -43,6 +43,15 @@ internal/wallet/            — fitur wallet FIRST-PARTY, satu vertical slice: l
                               credit revenue), guard.go (RequireBalance middleware → 402), handler.go
                               (GET /wallet, GET /wallet/usage/today). Lihat WALLET.md untuk keputusan
                               desain + kontrak front end.
+internal/wallet/midtrans/   — top-up via Midtrans Snap, satu subpackage per integrasi (pola link):
+                              handler.go (HandleCreateTopup = POST /wallet/topup buat transaksi Snap,
+                              balas token + redirect URL, TANPA tulisan ledger; HandleNotification =
+                              webhook pembayaran, di luar auth Firebase, diautentikasi signature
+                              SHA-512 LALU dikonfirmasi ke status API Core Midtrans sebelum
+                              membukukan — amount/status/currency dari status API, bukan body
+                              (tahan bocornya server key) → Transact topup credit user debit pending,
+                              Ref = order ID, idempoten via ErrDuplicateRef → 200). Order ID
+                              `topup~{uid}~{nonce}` membawa binding user stateless.
 internal/wallet/postgres/   — adapter pgx di database KHUSUS wallet (tabel tanpa prefix): accounts
                               (saldo termaterialisasi, row lock, lock order deterministik by account
                               ID) + transactions (journal header: kind/ref/metadata) + entries
@@ -95,13 +104,13 @@ Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer 
 
 Endpoints (semua DELETE balas `204 No Content`):
 
-- `/sessions/{id}/messages` — GET/DELETE pesan satu thread.
+- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`agent.ChatSessionID`), jadi TANPA param sessionID di path.
 - `/knowledge` — GET/DELETE knowledge graph. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
 **identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`. Identity adalah concern AVAGENC-LEVEL (platform), bukan chat-level: satu akun Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
 
-**wallet** — ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`), dipotong per agent run sesuai token usage (WALLET.md = sumber keputusan desain + kontrak front end). Post-paid: `internal/wallet/biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop (`usage.Add(event)` sebelum branch final response) lalu `Charge` sekali per run via defer — satu transaksi `agent_run` (debit user + credit revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log; biller sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`). Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main. Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/zee`, `/rafal`, `/yori`, `/ava/awaken`; debit boleh membuat saldo sedikit minus. Charge gagal = log, bukan 5xx; pakai `context.WithoutCancel`. Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret `WALLET_DB_URL`) sebelum deploy; boot hanya validasi. Belum ada top-up (payment gateway belum dipilih) — dev seeding via SQL di WALLET.md.
+**wallet** — ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`), dipotong per agent run sesuai token usage (WALLET.md = sumber keputusan desain + kontrak front end). Post-paid: `internal/wallet/biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop (`usage.Add(event)` sebelum branch final response) lalu `Charge` sekali per run via defer — satu transaksi `agent_run` (debit user + credit revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log; biller sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`). Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main. Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/zee`, `/rafal`, `/yori`, `/ava/awaken`; debit boleh membuat saldo sedikit minus. Charge gagal = log, bukan 5xx; pakai `context.WithoutCancel`. Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret `WALLET_DB_URL`) sebelum deploy; boot hanya validasi. Top-up via Midtrans Snap di `internal/wallet/midtrans` (lihat Struktur + WALLET.md "Top-up Midtrans"); dev pakai Midtrans sandbox via `MIDTRANS_BASE_URL`.
 
 **linking** — surface user-facing untuk connect akun eksternal, sengaja lepas dari agent (agent hanya KONSUMEN token via client yang sama — rafal via `*gworkspace.Client`, yori via `*spotify.Client`; linking yang mengelola grant-nya). Seperti identity, linking adalah concern AVAGENC-LEVEL, bukan chat-level: user connect SEKALI dan grant-nya berlaku untuk semua produk Avagenc (kalau nanti ada produk lain, tidak perlu linking ulang). Karena itu data linking (Firestore di project `avagenc`, database via `FIRESTORE_DATABASE_ID`) di-scope dan dinamai level platform — JANGAN dinamai per-product (bukan `avagenc-chat`). Dua integrasi dengan flow identik (lihat LINKING.md untuk kontrak front end), contoh Google Workspace:
 
@@ -115,7 +124,9 @@ Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `W
 
 ## Auth flow
 
-Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — identitasnya dari header yang di-set postera enqueuer (`user-id`, `session-id`, `time-zone`).
+Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — TAPI TETAP diautentikasi: `identity.CloudTasksAuthenticator` memverifikasi OIDC token Google yang dipasang Cloud Tasks (audience = URL target `/ava/awaken`, email = `GCP_RUNTIME_SA_EMAIL`) SEBELUM `apiuser.HTTPWithID` membaca header `user-id`. Tanpa verifikasi ini header `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. Session-nya diturunkan dari user (`chat-{userID}`), bukan dari header.
+
+Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` via `agent.ChatSessionID`. Handler agent tidak lagi menerima `session-id` dari header/context; Ava menyuntikkannya ke context (`apisession.ContextWithID`) hanya supaya postera bisa men-scope note-nya.
 
 ## Environment variables
 
@@ -134,6 +145,8 @@ Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User 
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`), token gworkspace (`gworkspace_tokens`) & token spotify (`spotify_tokens`) |
 | `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
 | `WALLET_DB_URL` | PostgreSQL connection string untuk wallet — database KHUSUS wallet (tabel tanpa prefix), terpisah dari postera |
+| `MIDTRANS_SERVER_KEY` | Server key Midtrans — auth Snap API (create transaction) + verifikasi signature webhook top-up |
+| `MIDTRANS_BASE_URL` | Host Midtrans: `https://app.sandbox.midtrans.com` (dev) / `https://app.midtrans.com` (production) |
 | `GCP_PROJECT_ID` | GCP project ID (Cloud Tasks, Firestore) |
 | `CLOUD_TASKS_LOCATION_ID` | Cloud Tasks location |
 | `CLOUD_TASKS_QUEUE_ID` | Cloud Tasks queue ID |

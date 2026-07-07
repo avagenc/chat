@@ -15,8 +15,9 @@ import (
 const microsPerRupiah = 1_000_000
 
 // Handler serves the read endpoints the UI consumes. Amounts leave in rounded
-// rupiah for display plus authoritative *_micros fields; rupiah truncates
-// toward zero so a user never sees more than they have.
+// rupiah for display plus authoritative *_micros fields; rupiah rounds down
+// (floor) so a user never sees more than they have — which matters when a
+// post-paid balance dips negative.
 type Handler struct {
 	ledger Ledger
 }
@@ -36,10 +37,16 @@ func (h *Handler) HandleBalance(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to read balance"})
 		return
 	}
+	// Floor, not truncation toward zero: a negative balance must not display
+	// rounder than it is.
+	rupiah := micros / microsPerRupiah
+	if micros%microsPerRupiah != 0 && micros < 0 {
+		rupiah--
+	}
 	apihttp.WriteJSON(w, http.StatusOK, struct {
 		Balance       int64 `json:"balance"`
 		BalanceMicros int64 `json:"balance_micros"`
-	}{micros / microsPerRupiah, micros})
+	}{rupiah, micros})
 }
 
 func (h *Handler) HandleTodayUsage(w http.ResponseWriter, r *http.Request) {

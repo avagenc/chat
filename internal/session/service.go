@@ -72,6 +72,7 @@ func NewService(store Store) *Service {
 // the requested session belongs to someone else. Unlike ErrNotFound it never
 // comes from an adapter — the Service mints it.
 var ErrForbidden = errors.New("forbidden")
+
 // ErrNotFound is the sentinel a Store returns when the backend has no such
 // session. The Service and Handler match it with errors.Is to map to a 404.
 var ErrNotFound = errors.New("session not found")

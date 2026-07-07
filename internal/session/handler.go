@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/avagenc/chat/internal/agent"
 	apihttp "go.naturallyfunny.dev/api/http"
+	apiuser "go.naturallyfunny.dev/api/user"
 )
 
 // Handler is the HTTP glue for episodic memory: it extracts the session ID
@@ -71,11 +73,14 @@ func messagesQuery(r *http.Request) (*MessagesQuery, error) {
 }
 
 func (h *Handler) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
-	if sessionID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
+	userID, err := apiuser.IDFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
+	// Single-session per user: the thread is derived from the caller, not taken
+	// from the URL, so there is nothing to authorize across users.
+	sessionID := agent.ChatSessionID(userID)
 	query, err := messagesQuery(r)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
@@ -98,12 +103,13 @@ func (h *Handler) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleClearMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
-	if sessionID == "" {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
+	userID, err := apiuser.IDFromContext(r.Context())
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	err := h.service.ClearMessages(r.Context(), sessionID)
+	sessionID := agent.ChatSessionID(userID)
+	err = h.service.ClearMessages(r.Context(), sessionID)
 	if errors.Is(err, ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "session not found"})
 		return

@@ -46,17 +46,20 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.ChatSessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	ctx := adkzep.WithTimezone(r.Context(), tz)
+	// Put the session in context too: Ava's postera tools scope notes by the
+	// session read from context (WithSessionFromContext in main).
+	ctx, err := apisess.ContextWithID(r.Context(), sessID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
+		return
+	}
+	ctx = adkzep.WithTimezone(ctx, tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
@@ -119,17 +122,20 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.ChatSessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	ctx := adkzep.WithTimezone(r.Context(), tz)
+	// Put the session in context too: an awoken Ava may schedule further
+	// postera notes, which scope by the session read from context.
+	ctx, err := apisess.ContextWithID(r.Context(), sessID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
+		return
+	}
+	ctx = adkzep.WithTimezone(ctx, tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "ava", Role: zep.RoleTypeSystemRole})
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := h.runner.Run(

@@ -11,7 +11,6 @@ import (
 	"github.com/avagenc/chat/internal/wallet"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
-	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"
@@ -57,11 +56,7 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.ChatSessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})

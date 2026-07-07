@@ -6,6 +6,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
+	// Bundle the IANA timezone database into the binary. The distroless/static
+	// runtime image ships no zoneinfo, so time.LoadLocation (usage/today's
+	// local midnight, agent time-awareness) would otherwise fail in production.
+	_ "time/tzdata"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
 	"cloud.google.com/go/firestore"
@@ -23,6 +28,7 @@ import (
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
 	internalwallet "github.com/avagenc/chat/internal/wallet"
+	walletmidtrans "github.com/avagenc/chat/internal/wallet/midtrans"
 	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
@@ -130,6 +136,23 @@ func main() {
 			http.HandlerFunc(walletHandler.HandleTodayUsage),
 		)),
 	)
+	midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
+	if midtransServerKey == "" {
+		log.Fatal("fatal: MIDTRANS_SERVER_KEY is required")
+	}
+	midtransBaseURL := os.Getenv("MIDTRANS_BASE_URL")
+	if midtransBaseURL == "" {
+		log.Fatal("fatal: MIDTRANS_BASE_URL is required")
+	}
+	midtransHandler := walletmidtrans.NewHandler(walletLedger, &http.Client{Timeout: 30 * time.Second}, midtransServerKey, midtransBaseURL)
+	mux.Handle("POST /wallet/topup",
+		firebaseAuthenticator.Authenticate(
+			http.HandlerFunc(midtransHandler.HandleCreateTopup),
+		),
+	)
+	mux.Handle("POST /wallet/topup/notification",
+		http.HandlerFunc(midtransHandler.HandleNotification),
+	)
 	// 3. Zee
 	zepAPIKey := os.Getenv("ZEP_API_KEY")
 	if zepAPIKey == "" {
@@ -200,17 +223,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build zee runner: %v", err)
 	}
-	walletGuard := internalwallet.NewGuard(walletLedger)
 	biller := internalwallet.NewBiller(walletLedger, internalwallet.Price{
 		InputPerMTok:  10_000,
 		CachedPerMTok: 2_500,
 		OutputPerMTok: 42_000,
 	})
 	zeeHandler := specialist.NewHandler(zeeRunner, biller, zeeAgent.Name())
+	walletGuard := internalwallet.NewGuard(walletLedger)
 	mux.Handle("POST /zee",
-		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(apisession.HTTPWithID(
+		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(zeeHandler.HandleHuman),
-		)))),
+		))),
 	)
 	// 4. Rafal
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
@@ -261,9 +284,9 @@ func main() {
 	}
 	rafalHandler := specialist.NewHandler(rafalRunner, biller, rafalAgent.Name())
 	mux.Handle("POST /rafal",
-		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(apisession.HTTPWithID(
+		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(rafalHandler.HandleHuman),
-		)))),
+		))),
 	)
 	// 5. Yori
 	spotifyClientID := os.Getenv("SPOTIFY_CLIENT_ID")
@@ -297,9 +320,9 @@ func main() {
 	}
 	yoriHandler := specialist.NewHandler(yoriRunner, biller, yoriAgent.Name())
 	mux.Handle("POST /yori",
-		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(apisession.HTTPWithID(
+		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(yoriHandler.HandleHuman),
-		)))),
+		))),
 	)
 	// 6. Ava
 	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.KindInstruction)
@@ -390,12 +413,13 @@ func main() {
 	}
 	avaHandler := internalava.NewHandler(avaRunner, biller)
 	mux.Handle("POST /ava",
-		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(apisession.HTTPWithID(
+		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleHuman),
-		)))),
+		))),
 	)
+	cloudTasksAuthenticator := identity.NewCloudTasksAuthenticator(hostURL+avaAwakenEndpoint, gcpRuntimeSAEmail)
 	mux.Handle("POST "+avaAwakenEndpoint,
-		apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(apisession.HTTPWithID(
+		cloudTasksAuthenticator.Authenticate(apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleSelfAwaken),
 		)))),
 	)
@@ -457,12 +481,12 @@ func main() {
 	sessionStore := sessionzep.NewStore(zepClient)
 	sessionService := session.NewService(sessionStore)
 	sessionHandler := session.NewHandler(sessionService)
-	mux.Handle("GET /sessions/{sessionID}/messages",
+	mux.Handle("GET /sessions/messages",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(sessionHandler.HandleGetMessages),
 		),
 	)
-	mux.Handle("DELETE /sessions/{sessionID}/messages",
+	mux.Handle("DELETE /sessions/messages",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(sessionHandler.HandleClearMessages),
 		),

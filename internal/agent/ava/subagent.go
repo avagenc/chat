@@ -11,7 +11,6 @@ import (
 	"github.com/avagenc/chat/internal/wallet"
 	"go.avagenc.com/ava"
 	adkzep "go.naturallyfunny.dev/adk/zep"
-	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"
@@ -47,10 +46,7 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: user identity: %w", s.name, err)
 	}
-	sessID, err := apisess.IDFromContext(ctx)
-	if err != nil {
-		return "", fmt.Errorf("subagent %s: session identity: %w", s.name, err)
-	}
+	sessID := agent.ChatSessionID(userID)
 	tz, err := apitime.ZoneFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: timezone: %w", s.name, err)

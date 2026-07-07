@@ -35,6 +35,11 @@ func UserAccountID(userID string) string { return "user:" + userID }
 // chart of accounts lives in WALLET.md.
 const AccountRevenue = "revenue"
 
+// AccountPending is the system account debited by every top-up: money the
+// payment gateway holds that has not settled to a bank account yet.
+// Asset-like, so it reads negative — the credit-positive double-entry mirror.
+const AccountPending = "pending"
+
 // Kind labels what a transaction is (e.g. "topup", "agent_run", "refund").
 // Open set: consumers define their own kinds, the wallet never interprets
 // them.
