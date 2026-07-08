@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"time"
+	// "time"
 	_ "time/tzdata"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
@@ -25,7 +25,7 @@ import (
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
 	internalwallet "github.com/avagenc/chat/internal/wallet"
-	walletmidtrans "github.com/avagenc/chat/internal/wallet/midtrans"
+	// walletmidtrans "github.com/avagenc/chat/internal/wallet/midtrans"
 	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
@@ -67,21 +67,6 @@ func main() {
 	svcEnv := os.Getenv("APP_ENV")
 	if svcEnv == "" {
 		log.Fatal("fatal: APP_ENV is required")
-	}
-	corsAllowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
-	if corsAllowedOrigin == "" {
-		log.Fatal("fatal: CORS_ALLOWED_ORIGIN is required")
-	}
-	cors := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if origin := r.Header.Get("Origin"); origin != "" {
-				w.Header().Add("Vary", "Origin")
-				if origin == corsAllowedOrigin {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
 	}
 	const appName = "chat"
 	const svcVersion = "v0.0.1"
@@ -133,23 +118,23 @@ func main() {
 			http.HandlerFunc(walletHandler.HandleTodayUsage),
 		)),
 	)
-	midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
-	if midtransServerKey == "" {
-		log.Fatal("fatal: MIDTRANS_SERVER_KEY is required")
-	}
-	midtransBaseURL := os.Getenv("MIDTRANS_BASE_URL")
-	if midtransBaseURL == "" {
-		log.Fatal("fatal: MIDTRANS_BASE_URL is required")
-	}
-	midtransHandler := walletmidtrans.NewHandler(walletLedger, &http.Client{Timeout: 30 * time.Second}, midtransServerKey, midtransBaseURL)
-	mux.Handle("POST /wallet/topup",
-		firebaseAuthenticator.Authenticate(
-			http.HandlerFunc(midtransHandler.HandleCreateTopup),
-		),
-	)
-	mux.Handle("POST /wallet/topup/notification",
-		http.HandlerFunc(midtransHandler.HandleNotification),
-	)
+	// midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
+	// if midtransServerKey == "" {
+	// 	log.Fatal("fatal: MIDTRANS_SERVER_KEY is required")
+	// }
+	// midtransBaseURL := os.Getenv("MIDTRANS_BASE_URL")
+	// if midtransBaseURL == "" {
+	// 	log.Fatal("fatal: MIDTRANS_BASE_URL is required")
+	// }
+	// midtransHandler := walletmidtrans.NewHandler(walletLedger, &http.Client{Timeout: 30 * time.Second}, midtransServerKey, midtransBaseURL)
+	// mux.Handle("POST /wallet/topup",
+	// 	firebaseAuthenticator.Authenticate(
+	// 		http.HandlerFunc(midtransHandler.HandleCreateTopup),
+	// 	),
+	// )
+	// mux.Handle("POST /wallet/topup/notification",
+	// 	http.HandlerFunc(midtransHandler.HandleNotification),
+	// )
 	// 3. Zee
 	zepAPIKey := os.Getenv("ZEP_API_KEY")
 	if zepAPIKey == "" {
@@ -522,6 +507,21 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	// ---- START SERVER ----
+	corsAllowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
+	if corsAllowedOrigin == "" {
+		log.Fatal("fatal: CORS_ALLOWED_ORIGIN is required")
+	}
+	cors := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if origin := r.Header.Get("Origin"); origin != "" {
+				w.Header().Add("Vary", "Origin")
+				if origin == corsAllowedOrigin {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
