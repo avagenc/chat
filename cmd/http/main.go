@@ -7,9 +7,6 @@ import (
 	"net/url"
 	"os"
 	"time"
-	// Bundle the IANA timezone database into the binary. The distroless/static
-	// runtime image ships no zoneinfo, so time.LoadLocation (usage/today's
-	// local midnight, agent time-awareness) would otherwise fail in production.
 	_ "time/tzdata"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"

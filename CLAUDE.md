@@ -104,7 +104,7 @@ Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer 
 
 Endpoints (semua DELETE balas `204 No Content`):
 
-- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`agent.ChatSessionID`), jadi TANPA param sessionID di path.
+- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`agent.SessionID`), jadi TANPA param sessionID di path.
 - `/knowledge` — GET/DELETE knowledge graph. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
@@ -126,7 +126,7 @@ Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `W
 
 Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — TAPI TETAP diautentikasi: `identity.CloudTasksAuthenticator` memverifikasi OIDC token Google yang dipasang Cloud Tasks (audience = URL target `/ava/awaken`, email = `GCP_RUNTIME_SA_EMAIL`) SEBELUM `apiuser.HTTPWithID` membaca header `user-id`. Tanpa verifikasi ini header `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. Session-nya diturunkan dari user (`chat-{userID}`), bukan dari header.
 
-Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` via `agent.ChatSessionID`. Handler agent tidak lagi menerima `session-id` dari header/context; Ava menyuntikkannya ke context (`apisession.ContextWithID`) hanya supaya postera bisa men-scope note-nya.
+Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` via `agent.SessionID`. Handler agent tidak lagi menerima `session-id` dari header/context; Ava menyuntikkannya ke context (`apisession.ContextWithID`) hanya supaya postera bisa men-scope note-nya.
 
 ## Environment variables
 
@@ -135,7 +135,7 @@ Single-session per user: semua entry point (human → Ava/specialist, Ava → sp
 | `FIREBASE_PROJECT_ID` | Project ID Firebase untuk verifikasi ID token |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path service account credentials (Firebase Admin SDK, Cloud Tasks) |
 | `ZEP_API_KEY` | API key Zep |
-| `GEMINI_API_KEY` | API key model Gemini (LLM roster) |
+| `GEMINI_API_KEY` | API key model Gemini (LLM roster) — model roster `gemini-3.5-flash`, di-set eksplisit di `main.go` |
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) — refresh token user di-resolve lewat client ini |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | OAuth app Spotify (yori + linking) — refresh token user di-resolve lewat client ini |

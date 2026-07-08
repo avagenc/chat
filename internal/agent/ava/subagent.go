@@ -46,7 +46,7 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: user identity: %w", s.name, err)
 	}
-	sessID := agent.ChatSessionID(userID)
+	sessID := agent.SessionID(userID)
 	tz, err := apitime.ZoneFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: timezone: %w", s.name, err)
