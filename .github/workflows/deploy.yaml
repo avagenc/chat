@@ -119,7 +119,7 @@ jobs:
             SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
             WEB_APP_URL=${{ vars.WEB_APP_URL }}
-            CORS_ALLOWED_ORIGINS=${{ vars.CORS_ALLOWED_ORIGINS }}
+            CORS_ALLOWED_ORIGIN=${{ vars.CORS_ALLOWED_ORIGINS }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             FIRESTORE_DATABASE_ID=(default)
@@ -129,5 +129,3 @@ jobs:
             CLOUD_TASKS_QUEUE_ID=ava
             POSTERA_DB_URL=${{ secrets.POSTERA_DB_URL }}
             WALLET_DB_URL=${{ secrets.WALLET_DB_URL }}
-            # MIDTRANS_SERVER_KEY=${{ secrets.MIDTRANS_SERVER_KEY }}
-            # MIDTRANS_BASE_URL=${{ vars.MIDTRANS_BASE_URL }}
