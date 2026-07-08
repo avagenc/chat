@@ -18,87 +18,60 @@ import (
 )
 
 func main() {
-	// Attempt to load .env file for local development (ignore error if file doesn't exist)
-	_ = godotenv.Load()
-
+	if err := godotenv.Load(); err != nil {
+		log.Println("info: .env file not found, using system environment variables")
+	}
 	var (
 		userIDFlag    string
 		amountIDRFlag float64
 	)
-
 	flag.StringVar(&userIDFlag, "user", "", "The Firebase User ID (required)")
 	flag.Float64Var(&amountIDRFlag, "amount", 50000, "The seed amount in Rupiah (IDR)")
 	flag.Parse()
-
 	if userIDFlag == "" {
 		fmt.Fprintf(os.Stderr, "Usage: go run cmd/wallet/seed/main.go -user <userID> [options]\n\nOptions:\n")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-
 	if amountIDRFlag <= 0 {
-		log.Fatalf("Error: Amount must be greater than 0")
+		log.Fatal("fatal: amount must be greater than 0")
 	}
-
-	dbURL := os.Getenv("WALLET_DB_URL")
-	if dbURL == "" {
-		log.Fatalf("Error: WALLET_DB_URL environment variable is not set. Please set it or create a .env file.")
+	walletDBURL := os.Getenv("WALLET_DB_URL")
+	if walletDBURL == "" {
+		log.Fatal("fatal: WALLET_DB_URL is required")
 	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	if err := run(ctx, dbURL, userIDFlag, amountIDRFlag); err != nil {
-		log.Fatalf("Seeding failed: %v", err)
-	}
-}
-
-func run(ctx context.Context, dbURL string, userID string, amountIDR float64) error {
-	// Initialize pgx connection pool
-	pool, err := pgxpool.New(ctx, dbURL)
+	walletDBPool, err := pgxpool.New(ctx, walletDBURL)
 	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
+		log.Fatalf("fatal: init wallet db pool: %v", err)
 	}
-	defer pool.Close()
-
-	// Initialize ledger using postgres adapter
-	ledger, err := postgres.NewLedger(ctx, pool)
+	defer walletDBPool.Close()
+	walletLedger, err := postgres.NewLedger(ctx, walletDBPool)
 	if err != nil {
-		return fmt.Errorf("failed to init wallet ledger: %w", err)
+		log.Fatalf("fatal: init wallet ledger: %v", err)
 	}
-
-	// Double-entry ledger: amounts are int64 micro-rupiah (1 IDR = 1_000_000 micros)
-	micros := int64(amountIDR * 1_000_000)
+	micros := int64(amountIDRFlag * 1_000_000)
 	if micros <= 0 {
-		return fmt.Errorf("amount is too small after converting to micro-rupiah")
+		log.Fatal("fatal: amount is too small after converting to micro-rupiah")
 	}
-
-	userAccount := wallet.UserAccountID(userID)
-
-	// Check current balance
-	balBefore, err := ledger.Balance(ctx, userAccount)
+	userAccount := wallet.UserAccountID(userIDFlag)
+	balBefore, err := walletLedger.Balance(ctx, userAccount)
 	if err != nil {
-		return fmt.Errorf("failed to get current balance for %s: %w", userAccount, err)
+		log.Fatalf("fatal: get current balance for %s: %v", userAccount, err)
 	}
-
-	// Prepare metadata for transaction
-	metadataMap := map[string]any{
+	metadataBytes, err := json.Marshal(map[string]any{
 		"source":        "seed_script",
 		"seeded_at":     time.Now().UTC().Format(time.RFC3339),
-		"amount_idr":    amountIDR,
+		"amount_idr":    amountIDRFlag,
 		"amount_micros": micros,
-	}
-	metadataBytes, err := json.Marshal(metadataMap)
+	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
+		log.Fatalf("fatal: marshal metadata: %v", err)
 	}
-
-	// Generate a unique idempotency reference
-	ref := fmt.Sprintf("seed-%s-%d", userID, time.Now().UnixNano())
-
-	// Transact: Credit user account (positive amount), Debit pending (negative amount)
-	log.Printf("Seeding user %s with %.2f IDR (%d micro-rupiah)...", userID, amountIDR, micros)
-	txn, err := ledger.Transact(ctx, wallet.Spec{
+	ref := fmt.Sprintf("seed-%s-%d", userIDFlag, time.Now().UnixNano())
+	log.Printf("Seeding user %s with %.2f IDR (%d micro-rupiah)...", userIDFlag, amountIDRFlag, micros)
+	txn, err := walletLedger.Transact(ctx, wallet.Spec{
 		Kind:     "topup",
 		Ref:      ref,
 		Metadata: json.RawMessage(metadataBytes),
@@ -108,18 +81,13 @@ func run(ctx context.Context, dbURL string, userID string, amountIDR float64) er
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to record seed transaction: %w", err)
+		log.Fatalf("fatal: record seed transaction: %v", err)
 	}
-
-	// Check balance after transaction
-	balAfter, err := ledger.Balance(ctx, userAccount)
+	balAfter, err := walletLedger.Balance(ctx, userAccount)
 	if err != nil {
-		return fmt.Errorf("failed to get balance after seeding: %w", err)
+		log.Fatalf("fatal: get balance after seeding: %v", err)
 	}
-
 	log.Printf("Seeding transaction recorded successfully: txn ID %s", txn.ID)
 	log.Printf("Balance before : %.2f IDR (%d micro-rupiah)", float64(balBefore)/1_000_000, balBefore)
 	log.Printf("Balance after  : %.2f IDR (%d micro-rupiah)", float64(balAfter)/1_000_000, balAfter)
-
-	return nil
 }
