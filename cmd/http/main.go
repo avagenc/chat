@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+
 	// "time"
 	_ "time/tzdata"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
 	internalwallet "github.com/avagenc/chat/internal/wallet"
+
 	// walletmidtrans "github.com/avagenc/chat/internal/wallet/midtrans"
 	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
 	zepclient "github.com/getzep/zep-go/v3/client"
@@ -108,12 +110,14 @@ func main() {
 		log.Fatalf("fatal: init firebase auth client: %v", err)
 	}
 	firebaseAuthenticator := identity.NewFirebaseAuthenticator(firebaseAuthClient)
-	mux.Handle("GET /wallet",
+	mux.Handle(
+		"GET /wallet",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(walletHandler.HandleBalance),
 		),
 	)
-	mux.Handle("GET /wallet/usage/today",
+	mux.Handle(
+		"GET /wallet/usage/today",
 		firebaseAuthenticator.Authenticate(apitime.HTTPWithZone(
 			http.HandlerFunc(walletHandler.HandleTodayUsage),
 		)),
@@ -212,7 +216,8 @@ func main() {
 	})
 	zeeHandler := specialist.NewHandler(zeeRunner, biller, zeeAgent.Name())
 	walletGuard := internalwallet.NewGuard(walletLedger)
-	mux.Handle("POST /zee",
+	mux.Handle(
+		"POST /zee",
 		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(zeeHandler.HandleHuman),
 		))),
@@ -265,7 +270,8 @@ func main() {
 		log.Fatalf("fatal: build rafal runner: %v", err)
 	}
 	rafalHandler := specialist.NewHandler(rafalRunner, biller, rafalAgent.Name())
-	mux.Handle("POST /rafal",
+	mux.Handle(
+		"POST /rafal",
 		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(rafalHandler.HandleHuman),
 		))),
@@ -301,7 +307,8 @@ func main() {
 		log.Fatalf("fatal: build yori runner: %v", err)
 	}
 	yoriHandler := specialist.NewHandler(yoriRunner, biller, yoriAgent.Name())
-	mux.Handle("POST /yori",
+	mux.Handle(
+		"POST /yori",
 		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(yoriHandler.HandleHuman),
 		))),
@@ -394,13 +401,15 @@ func main() {
 		log.Fatalf("fatal: build ava runner: %v", err)
 	}
 	avaHandler := internalava.NewHandler(avaRunner, biller)
-	mux.Handle("POST /ava",
+	mux.Handle(
+		"POST /ava",
 		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleHuman),
 		))),
 	)
 	cloudTasksAuthenticator := identity.NewCloudTasksAuthenticator(hostURL+avaAwakenEndpoint, gcpRuntimeSAEmail)
-	mux.Handle("POST "+avaAwakenEndpoint,
+	mux.Handle(
+		"POST "+avaAwakenEndpoint,
 		cloudTasksAuthenticator.Authenticate(apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleSelfAwaken),
 		)))),
@@ -411,50 +420,59 @@ func main() {
 		log.Fatal("fatal: OAUTH_STATE_SECRET is required")
 	}
 	gworkspaceLinkHandler := gworkspacelink.NewHandler(gworkspaceClient, []byte(oauthStateSecret))
-	mux.Handle("GET /gworkspace/auth-url",
+	mux.Handle(
+		"GET /gworkspace/auth-url",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(gworkspaceLinkHandler.HandleAuthURL),
 		),
 	)
-	mux.Handle("GET /gworkspace/connection",
+	mux.Handle(
+		"GET /gworkspace/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(gworkspaceLinkHandler.HandleStatus),
 		),
 	)
-	mux.Handle("POST /gworkspace/connection",
+	mux.Handle(
+		"POST /gworkspace/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(gworkspaceLinkHandler.HandleConnect),
 		),
 	)
-	mux.Handle("DELETE /gworkspace/connection",
+	mux.Handle(
+		"DELETE /gworkspace/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(gworkspaceLinkHandler.HandleDisconnect),
 		),
 	)
 	// 8. Spotify
 	spotifyLinkHandler := spotifylink.NewHandler(spotifyClient, []byte(oauthStateSecret))
-	mux.Handle("GET /spotify/auth-url",
+	mux.Handle(
+		"GET /spotify/auth-url",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(spotifyLinkHandler.HandleAuthURL),
 		),
 	)
-	mux.Handle("GET /spotify/connection",
+	mux.Handle(
+		"GET /spotify/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(spotifyLinkHandler.HandleStatus),
 		),
 	)
-	mux.Handle("POST /spotify/connection",
+	mux.Handle(
+		"POST /spotify/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(spotifyLinkHandler.HandleConnect),
 		),
 	)
-	mux.Handle("DELETE /spotify/connection",
+	mux.Handle(
+		"DELETE /spotify/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(spotifyLinkHandler.HandleDisconnect),
 		),
 	)
 	tuyaLinkHandler := tuyalink.NewHandler(tuyaAppClient)
-	mux.Handle("GET /tuya/connection",
+	mux.Handle(
+		"GET /tuya/connection",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(tuyaLinkHandler.HandleStatus),
 		),
@@ -463,12 +481,14 @@ func main() {
 	sessionStore := sessionzep.NewStore(zepClient)
 	sessionService := session.NewService(sessionStore)
 	sessionHandler := session.NewHandler(sessionService)
-	mux.Handle("GET /sessions/messages",
+	mux.Handle(
+		"GET /sessions/messages",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(sessionHandler.HandleGetMessages),
 		),
 	)
-	mux.Handle("DELETE /sessions/messages",
+	mux.Handle(
+		"DELETE /sessions/messages",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(sessionHandler.HandleClearMessages),
 		),
@@ -477,24 +497,28 @@ func main() {
 	knowledgeStore := knowledgezep.NewStore(zepClient)
 	knowledgeService := knowledge.NewService(knowledgeStore)
 	knowledgeHandler := knowledge.NewHandler(knowledgeService)
-	mux.Handle("GET /knowledge",
+	mux.Handle(
+		"GET /knowledge",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(knowledgeHandler.HandleGet),
 		),
 	)
-	mux.Handle("DELETE /knowledge",
+	mux.Handle(
+		"DELETE /knowledge",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(knowledgeHandler.HandleDelete),
 		),
 	)
 	// 11. Postera (prospective)
 	posteraHandler := internalpostera.NewHandler(postarius)
-	mux.Handle("GET /postera",
+	mux.Handle(
+		"GET /postera",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(posteraHandler.HandleListUpcoming),
 		),
 	)
-	mux.Handle("DELETE /postera/{posterumID}",
+	mux.Handle(
+		"DELETE /postera/{posterumID}",
 		firebaseAuthenticator.Authenticate(
 			http.HandlerFunc(posteraHandler.HandleCancel),
 		),
