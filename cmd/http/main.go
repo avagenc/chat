@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
-	// "time"
 	_ "time/tzdata"
 
 	gcptasks "cloud.google.com/go/cloudtasks/apiv2"
@@ -157,8 +157,10 @@ func main() {
 	if geminiAPIKey == "" {
 		log.Fatal("fatal: GEMINI_API_KEY is required")
 	}
+	modelCallTimeout := 90 * time.Second
 	agentModel, err := gemini.NewModel(context.Background(), "gemini-3.5-flash", &genai.ClientConfig{
-		APIKey: geminiAPIKey,
+		APIKey:      geminiAPIKey,
+		HTTPOptions: genai.HTTPOptions{Timeout: &modelCallTimeout},
 	})
 	if err != nil {
 		log.Fatalf("fatal: build gemini model: %v", err)
@@ -550,9 +552,17 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: cors(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      310 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("In the name of Allah, The Most Compassionate, The Most Merciful")
 	log.Printf("Starting %s HTTP server [%s] on port %s", svcName, svcEnv, port)
-	if err := http.ListenAndServe(":"+port, cors(mux)); err != nil && err != http.ErrServerClosed {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("fatal: failed to start server: %v", err)
 	}
 }
