@@ -119,7 +119,7 @@ jobs:
             SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
             WEB_APP_URL=${{ vars.WEB_APP_URL }}
-            CORS_ALLOWED_ORIGIN=${{ vars.CORS_ALLOWED_ORIGINS }}
+            CORS_ALLOWED_ORIGIN=${{ vars.CORS_ALLOWED_ORIGIN }}
             OAUTH_STATE_SECRET=${{ secrets.OAUTH_STATE_SECRET }}
             FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             FIRESTORE_DATABASE_ID=(default)
