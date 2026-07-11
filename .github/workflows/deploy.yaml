@@ -34,18 +34,16 @@ jobs:
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           WEB_APP_URL: ${{ vars.WEB_APP_URL }}
-          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          CORS_ALLOWED_ORIGIN: ${{ vars.CORS_ALLOWED_ORIGIN }}
           OAUTH_STATE_SECRET: ${{ secrets.OAUTH_STATE_SECRET }}
           POSTERA_DB_URL: ${{ secrets.POSTERA_DB_URL }}
           WALLET_DB_URL: ${{ secrets.WALLET_DB_URL }}
-          # MIDTRANS_SERVER_KEY: ${{ secrets.MIDTRANS_SERVER_KEY }}
-          # MIDTRANS_BASE_URL: ${{ vars.MIDTRANS_BASE_URL }}
         run: |
           missing=0
           for name in GCP_SA_KEY GCP_PROJECT_ID GCP_RUNTIME_SA_EMAIL HOST_URL \
             ZEP_API_KEY GEMINI_API_KEY TUYA_ACCESS_ID TUYA_ACCESS_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET SPOTIFY_CLIENT_ID \
-            SPOTIFY_CLIENT_SECRET WEB_APP_URL CORS_ALLOWED_ORIGINS \
+            SPOTIFY_CLIENT_SECRET WEB_APP_URL CORS_ALLOWED_ORIGIN \
             OAUTH_STATE_SECRET POSTERA_DB_URL WALLET_DB_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is empty — set it as a secret/variable in the '${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}' GitHub environment"
@@ -126,6 +124,6 @@ jobs:
             GCP_RUNTIME_SA_EMAIL=${{ vars.GCP_RUNTIME_SA_EMAIL }}
             GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             CLOUD_TASKS_LOCATION_ID=${{ env.REGION }}
-            CLOUD_TASKS_QUEUE_ID=ava
+            CLOUD_TASKS_QUEUE_ID=postera
             POSTERA_DB_URL=${{ secrets.POSTERA_DB_URL }}
             WALLET_DB_URL=${{ secrets.WALLET_DB_URL }}
