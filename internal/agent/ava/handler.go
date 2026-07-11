@@ -4,10 +4,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
@@ -19,13 +21,19 @@ import (
 	"google.golang.org/genai"
 )
 
-type handler struct {
+//go:embed instruction.txt
+var kindInstruction string
+
+type Handler struct {
 	runner *runner.Runner
+	biller *wallet.Biller
 }
 
-func NewHandler(r *runner.Runner) *handler { return &handler{runner: r} }
+func NewHandler(r *runner.Runner, b *wallet.Biller) *Handler {
+	return &Handler{runner: r, biller: b}
+}
 
-func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -38,17 +46,20 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.SessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	ctx := adkzep.WithTimezone(r.Context(), tz)
+	// Put the session in context too: Ava's postera tools scope notes by the
+	// session read from context (WithSessionFromContext in main).
+	ctx, err := apisess.ContextWithID(r.Context(), sessID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
+		return
+	}
+	ctx = adkzep.WithTimezone(ctx, tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
@@ -57,21 +68,35 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: ""}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: kindInstruction,
+			agent.RunInstructionDeltaKey:          "",
+		}),
 	)
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
+			log.Printf("error: charge user %s for ava run: %v", userID, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
-		if event.IsFinalResponse() && event.Content != nil {
+		usage.Add(event)
+		if event.IsFinalResponse() {
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			apihttp.WriteJSON(w, http.StatusOK, struct {
 				Response string `json:"response"`
-			}{resp.String()})
+			}{
+				resp.String(),
+			})
 			return
 		}
 	}
@@ -81,7 +106,7 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 //go:embed ava-ran-by-postera-instruction.txt
 var avaRanByPosteraInstruction string
 
-func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "failed to read body"})
@@ -97,18 +122,21 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.SessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	ctx := adkzep.WithTimezone(r.Context(), tz)
-	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "ava", Role: zep.RoleTypeSystemRole})
+	// Put the session in context too: an awoken Ava may schedule further
+	// postera notes, which scope by the session read from context.
+	ctx, err := apisess.ContextWithID(r.Context(), sessID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
+		return
+	}
+	ctx = adkzep.WithTimezone(ctx, tz)
+	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "postera", Role: zep.RoleTypeSystemRole})
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := h.runner.Run(
 		ctx,
@@ -116,17 +144,29 @@ func (h *handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: avaRanByPosteraInstruction}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: kindInstruction,
+			agent.RunInstructionDeltaKey:          avaRanByPosteraInstruction,
+		}),
 	)
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "postera"}, usage); err != nil {
+			log.Printf("error: charge user %s for ava run: %v", userID, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
-		if event.IsFinalResponse() && event.Content != nil {
+		usage.Add(event)
+		if event.IsFinalResponse() {
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			apihttp.WriteJSON(w, http.StatusOK, struct {
 				Response string `json:"response"`

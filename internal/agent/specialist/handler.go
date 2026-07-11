@@ -3,13 +3,14 @@ package specialist
 import (
 	_ "embed"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
-	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"
@@ -17,18 +18,32 @@ import (
 	"google.golang.org/genai"
 )
 
-type handler struct {
+// KindInstruction is the specialist-kind behavioral layer, injected into the
+// KindSpecificInstructionDeltaKey on every specialist run. It is exported
+// because a specialist runs from two entry points that both must set it: this
+// handler (human → specialist) and Ava's subagent (Ava → specialist, wired in
+// main). The ava package cannot //go:embed a file outside its own directory, so
+// main passes this string to ava.NewSubAgent.
+//
+//go:embed instruction.txt
+var KindInstruction string
+
+type Handler struct {
 	runner *runner.Runner
+	biller *wallet.Biller
+	// agentName identifies which specialist this handler instance fronts
+	// (one instance per runner), for the billing receipt.
+	agentName string
 }
 
-func NewHandler(r *runner.Runner) *handler {
-	return &handler{runner: r}
+func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *Handler {
+	return &Handler{runner: r, biller: b, agentName: agentName}
 }
 
 //go:embed specialist-ran-by-human-instruction.txt
 var specialistRanByHumanInstruction string
 
-func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -41,11 +56,7 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID, err := apisess.IDFromContext(r.Context())
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "session ID required"})
-		return
-	}
+	sessID := agent.SessionID(userID)
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
@@ -60,17 +71,34 @@ func (h *handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByHumanInstruction}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: KindInstruction,
+			agent.RunInstructionDeltaKey:          specialistRanByHumanInstruction,
+		}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: h.agentName, Session: sessID, Trigger: "human"}, usage); err != nil {
+			log.Printf("error: charge user %s for %s run: %v", userID, h.agentName, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": err.Error()})
 			return
 		}
-		if event.IsFinalResponse() && event.Content != nil {
+		usage.Add(event)
+		if event.IsFinalResponse() {
+			// An empty final response is a valid outcome (the agent acted but
+			// had nothing to say). Return 200 with an empty body rather than
+			// treating a silent turn as a failure; a textless response is not
+			// persisted to the thread (see adk/zep).
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			apihttp.WriteJSON(w, http.StatusOK, struct {
 				Response string `json:"response"`

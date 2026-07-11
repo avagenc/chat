@@ -4,12 +4,13 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
+	"github.com/avagenc/chat/internal/wallet"
 	"go.avagenc.com/ava"
 	adkzep "go.naturallyfunny.dev/adk/zep"
-	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"
@@ -21,12 +22,17 @@ type subAgent struct {
 	name        string
 	description string
 	runner      *runner.Runner
+	biller      *wallet.Biller
+	// kindInstruction is the specialist-kind behavioral layer (specialist.KindInstruction).
+	// This adapter runs a specialist, so it seeds the specialist kind — not Ava's —
+	// into the run, mirroring what specialist.HandleHuman does for the direct entry.
+	kindInstruction string
 }
 
 var _ ava.SubAgent = (*subAgent)(nil)
 
-func NewSubAgent(a adkagent.Agent, r *runner.Runner) ava.SubAgent {
-	return &subAgent{name: a.Name(), description: a.Description(), runner: r}
+func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, kindInstruction string) ava.SubAgent {
+	return &subAgent{name: a.Name(), description: a.Description(), runner: r, biller: b, kindInstruction: kindInstruction}
 }
 
 func (s *subAgent) Name() string        { return s.name }
@@ -40,10 +46,7 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: user identity: %w", s.name, err)
 	}
-	sessID, err := apisess.IDFromContext(ctx)
-	if err != nil {
-		return "", fmt.Errorf("subagent %s: session identity: %w", s.name, err)
-	}
+	sessID := agent.SessionID(userID)
 	tz, err := apitime.ZoneFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("subagent %s: timezone: %w", s.name, err)
@@ -57,16 +60,32 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 		sessID,
 		msg,
 		adkagent.RunConfig{},
-		runner.WithStateDelta(map[string]any{agent.RunInstructionDeltaKey: specialistRanByAvaInstruction}),
+		runner.WithStateDelta(map[string]any{
+			agent.KindSpecificInstructionDeltaKey: s.kindInstruction,
+			agent.RunInstructionDeltaKey:          specialistRanByAvaInstruction,
+		}),
 	)
+	// Charge on every exit path: tokens consumed before an error are spent too.
+	var usage wallet.Usage
+	defer func() {
+		if err := s.biller.Charge(ctx, userID, wallet.Run{Agent: s.name, Session: sessID, Trigger: "ava"}, usage); err != nil {
+			log.Printf("error: charge user %s for %s run: %v", userID, s.name, err)
+		}
+	}()
 	for event, err := range runEvents {
 		if err != nil {
 			return "", fmt.Errorf("subagent %s: %w", s.name, err)
 		}
-		if event.IsFinalResponse() && event.Content != nil {
+		usage.Add(event)
+		if event.IsFinalResponse() {
+			// An empty final response is valid — the specialist may act without
+			// anything to say back to Ava. Return it (possibly empty) instead of
+			// treating a silent turn as a failure.
 			var resp strings.Builder
-			for _, p := range event.Content.Parts {
-				resp.WriteString(p.Text)
+			if event.Content != nil {
+				for _, p := range event.Content.Parts {
+					resp.WriteString(p.Text)
+				}
 			}
 			return resp.String(), nil
 		}

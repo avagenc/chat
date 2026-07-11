@@ -4,6 +4,7 @@ import (
 	_ "embed"
 )
 
+const KindSpecificInstructionDeltaKey string = "kind_specific_instruction"
 const SessionInstructionDeltaKey string = "sess_instruction"
 const RunInstructionDeltaKey string = "run_instruction"
 
@@ -12,5 +13,5 @@ var baseInstruction string
 
 func Instruction() string {
 	return baseInstruction +
-		"\n{" + RunInstructionDeltaKey + "}\n{" + SessionInstructionDeltaKey + "}"
+		"\n{" + KindSpecificInstructionDeltaKey + "}\n{" + RunInstructionDeltaKey + "}\n{" + SessionInstructionDeltaKey + "}"
 }

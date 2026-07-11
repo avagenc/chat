@@ -25,13 +25,11 @@ func (f *FirebaseAuthenticator) Authenticate(next http.Handler) http.Handler {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing authorization header"})
 			return
 		}
-
 		idToken := strings.TrimPrefix(authHeader, "Bearer ")
 		if idToken == authHeader {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "invalid token format"})
 			return
 		}
-
 		token, err := f.authClient.VerifyIDToken(r.Context(), idToken)
 		if err != nil {
 			log.Printf("Firebase ID token verify error: %v", err)
@@ -42,13 +40,11 @@ func (f *FirebaseAuthenticator) Authenticate(next http.Handler) http.Handler {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "invalid token"})
 			return
 		}
-
 		ctx, err := user.ContextWithID(r.Context(), token.UID)
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set user context"})
 			return
 		}
-
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
