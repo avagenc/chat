@@ -2,15 +2,14 @@ package knowledge
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 
 	apihttp "go.naturallyfunny.dev/api/http"
 )
 
-// Handler is the HTTP glue for semantic memory: it extracts the pagination
-// query, calls the Service, and maps sentinels to status codes.
+// Handler is the HTTP glue for semantic memory: it calls the Service and
+// maps sentinels to status codes. GET /knowledge returns the caller's whole
+// graph — no pagination surface; the adapter drains the backend's pages.
 type Handler struct {
 	service *Service
 }
@@ -21,40 +20,8 @@ func NewHandler(service *Service) *Handler {
 	}
 }
 
-func optionalInt(value string) (*int, error) {
-	if value == "" {
-		return nil, nil
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return nil, errors.New("not an integer")
-	}
-	if parsed < 0 {
-		return nil, errors.New("must be non-negative")
-	}
-	return &parsed, nil
-}
-
-func graphQuery(r *http.Request) (*GraphQuery, error) {
-	query := r.URL.Query()
-	limit, err := optionalInt(query.Get("limit"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid limit: %w", err)
-	}
-	q := &GraphQuery{Limit: limit}
-	if uuidCursor := query.Get("cursor"); uuidCursor != "" {
-		q.UUIDCursor = &uuidCursor
-	}
-	return q, nil
-}
-
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
-	query, err := graphQuery(r)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
-		return
-	}
-	graph, err := h.service.Get(r.Context(), query, query)
+	graph, err := h.service.Get(r.Context())
 	if errors.Is(err, ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return

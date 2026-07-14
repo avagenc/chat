@@ -52,21 +52,16 @@ type Node struct {
 	UUID          string         `json:"uuid"`
 }
 
-// GraphQuery paginates knowledge-graph nodes or edges.
-type GraphQuery struct {
-	// Limit caps the number of items returned.
-	Limit *int
-	// UUIDCursor is the UUID of the last item from the previous page.
-	UUIDCursor *string
-}
-
-// Store is the semantic-memory port: a user's knowledge graph. The Zep
-// adapter in the zep subpackage implements it.
+// Store is the semantic-memory port: a user's knowledge graph, whole. A graph
+// is only meaningful complete — an edge without both endpoints cannot be
+// drawn — so the port has no pagination; draining the backend's pages is the
+// adapter's business (Zep caps pages at 50 items). The Zep adapter in the zep
+// subpackage implements it.
 type Store interface {
-	// Nodes returns the entity nodes in a user's knowledge graph.
-	Nodes(ctx context.Context, userID string, query *GraphQuery) ([]*Node, error)
-	// Edges returns the entity edges in a user's knowledge graph.
-	Edges(ctx context.Context, userID string, query *GraphQuery) ([]*Edge, error)
+	// Nodes returns every entity node in a user's knowledge graph.
+	Nodes(ctx context.Context, userID string) ([]*Node, error)
+	// Edges returns every entity edge in a user's knowledge graph.
+	Edges(ctx context.Context, userID string) ([]*Edge, error)
 	// Delete removes a user's entire memory, including every session.
 	Delete(ctx context.Context, userID string) error
 }
@@ -92,20 +87,20 @@ type Graph struct {
 	Edges []*Edge `json:"edges"`
 }
 
-// Get returns the caller's knowledge graph.
-func (s *Service) Get(ctx context.Context, nodesQuery, edgesQuery *GraphQuery) (*Graph, error) {
+// Get returns the caller's complete knowledge graph.
+func (s *Service) Get(ctx context.Context) (*Graph, error) {
 	userID, err := user.IDFromContext(ctx)
 	if err != nil {
 		return nil, ErrForbidden
 	}
-	nodes, err := s.store.Nodes(ctx, userID, nodesQuery)
+	nodes, err := s.store.Nodes(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get nodes for user %q: %w", userID, err)
 	}
-	edges, err := s.store.Edges(ctx, userID, edgesQuery)
+	edges, err := s.store.Edges(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, ErrNotFound

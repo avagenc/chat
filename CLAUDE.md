@@ -6,6 +6,9 @@ Platform Avagenc Chat. Menerima request dari client, autentikasi via JWT, lalu m
 
 ```
 cmd/http/main.go            — entrypoint, wire-up EKSPLISIT semua dependency (lihat Conventions → Komposisi)
+cmd/httpdev/main.go         — kembaran cmd/http KHUSUS DEVELOPMENT: wiring identik, tapi identitas user
+                              datang dari header `user-id` (apiuser.HTTPWithID), bukan Firebase bearer,
+                              jadi API bisa dipukul pakai curl polos. JANGAN pernah di-deploy.
 internal/agent/             — group chat in-process: satu runner per agent di atas Zep thread bersama.
                               instruction.go = konstanta delta key + embed base-instruction.txt + func Instruction()
                               ava_handler.go = AvaHandler (HandleHuman, HandleSelfAwaken)
@@ -19,8 +22,12 @@ internal/link/              — user connect/disconnect akun eksternal. SATU SUB
 internal/knowledge/         — memory semantik: knowledge graph user. service.go = port (Store,
                               consumer-defined) + tipe domain + sentinel (ErrNotFound/ErrForbidden)
                               + Service; handler.go = HTTP glue (Handler: HandleGet, HandleDelete).
+                              Port TANPA pagination: graf cuma bermakna kalau utuh (edge tanpa kedua
+                              ujungnya tidak bisa digambar), jadi Store mengembalikan graf UTUH.
 internal/knowledge/zep/     — adapter Zep: implement knowledge.Store, terjemahkan not-found Zep ke
-                              sentinel knowledge.
+                              sentinel knowledge. Zep membatasi tiap halaman 50 item, jadi adapter
+                              yang MENGURAS halaman (drain, cursor = UUID item terakhir) — pagination
+                              adalah detail backend, bukan bocoran ke port maupun front end.
 internal/link/gworkspace    — linking Google Workspace: handler.go (Handler: HandleAuthURL, HandleConnect,
                               HandleDisconnect).
 internal/link/spotify       — linking Spotify: handler.go, struktur sama persis dengan gworkspace
@@ -94,6 +101,8 @@ Empat pintu masuk ke thread:
 
 Ava pemilik self-recall (postera tools), specialist tidak. `ForAva` mengadaptasi specialist menjadi `ava.SubAgent` — adapter hidup di `ava_subagent.go` karena implementasinya milik sisi konsumen (Ava). Route eksplisit per agent — bukan `/{agent}` dispatch.
 
+Satu run orkestrasi bisa panjang (Ava + beberapa specialist, tiap giliran satu panggilan model), jadi timeout-nya di-set eksplisit di `main.go` dan saling terkait: `http.Server.WriteTimeout` 310s memberi ruang satu run penuh (`ReadHeaderTimeout` 10s / `ReadTimeout` 30s / `IdleTimeout` 120s), sementara satu panggilan model dibatasi 90s (`genai.HTTPOptions.Timeout`) supaya provider yang menggantung tidak menyandera seluruh run. Client yang menunggu lebih lama dari itu akan lihat koneksi diputus — bukan bug FE.
+
 Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer wajib drain seluruh iterator. Hanya ambil teks dari `event.IsFinalResponse() && event.Content != nil` — ini selalu event terakhir untuk arsitektur single-agent/tool-based kita. Kalau loop selesai tanpa final response, balas error `502` (atau return error untuk `avaSubAgent.Run`). Error di iterator adalah error infrastruktur — tool call error dikembalikan sebagai FunctionResponse semantic, bukan Go error.
 
 **memory** — tiga package terpisah, satu per anggota keluarga memory, masing-masing vertical slice lengkap dengan handler-nya sendiri (port provider-agnostic di-back oleh Zep di subpackage `zep` masing-masing):
@@ -105,7 +114,7 @@ Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer 
 Endpoints (semua DELETE balas `204 No Content`):
 
 - `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`agent.SessionID`), jadi TANPA param sessionID di path.
-- `/knowledge` — GET/DELETE knowledge graph. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
+- `/knowledge` — GET/DELETE knowledge graph. GET membalas graf UTUH (`{nodes, edges}`) — tidak ada param `limit`/`cursor`, adapter Zep yang menguras halamannya. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
 **identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`. Identity adalah concern AVAGENC-LEVEL (platform), bukan chat-level: satu akun Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
@@ -140,7 +149,7 @@ Single-session per user: semua entry point (human → Ava/specialist, Ava → sp
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) — refresh token user di-resolve lewat client ini |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | OAuth app Spotify (yori + linking) — refresh token user di-resolve lewat client ini |
 | `WEB_APP_URL` | Origin web app SPA; backend menurunkan redirect URI tiap integrasi (`WEB_APP_URL/{gworkspace,spotify}/link/callback`) darinya — tiap URL wajib terdaftar verbatim di provider-nya (Google Cloud Console, Spotify Developer Dashboard) |
-| `CORS_ALLOWED_ORIGINS` | Daftar origin (dipisah koma) yang boleh memanggil API dari browser; wajib memuat origin tempat SPA disajikan |
+| `CORS_ALLOWED_ORIGIN` | SATU origin (bukan daftar) yang boleh memanggil API dari browser, dicocokkan persis; harus origin tempat SPA disajikan. Satu deployment backend = satu origin web |
 | `OAUTH_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state — satu untuk semua integrasi linking (domain separation via nama integrasi di mac) |
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`), token gworkspace (`gworkspace_tokens`) & token spotify (`spotify_tokens`) |
 | `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
