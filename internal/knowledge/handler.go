@@ -35,26 +35,33 @@ func optionalInt(value string) (*int, error) {
 	return &parsed, nil
 }
 
-func graphQuery(r *http.Request) (*GraphQuery, error) {
+// graphQueries builds one query per list. Nodes and edges are independent
+// sequences in the backend, so a shared cursor cannot page both — each list
+// gets its own (node_cursor / edge_cursor); the limit applies to each.
+func graphQueries(r *http.Request) (*GraphQuery, *GraphQuery, error) {
 	query := r.URL.Query()
 	limit, err := optionalInt(query.Get("limit"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid limit: %w", err)
+		return nil, nil, fmt.Errorf("invalid limit: %w", err)
 	}
-	q := &GraphQuery{Limit: limit}
-	if uuidCursor := query.Get("cursor"); uuidCursor != "" {
-		q.UUIDCursor = &uuidCursor
+	nodes := &GraphQuery{Limit: limit}
+	if cursor := query.Get("node_cursor"); cursor != "" {
+		nodes.UUIDCursor = &cursor
 	}
-	return q, nil
+	edges := &GraphQuery{Limit: limit}
+	if cursor := query.Get("edge_cursor"); cursor != "" {
+		edges.UUIDCursor = &cursor
+	}
+	return nodes, edges, nil
 }
 
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
-	query, err := graphQuery(r)
+	nodesQuery, edgesQuery, err := graphQueries(r)
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 		return
 	}
-	graph, err := h.service.Get(r.Context(), query, query)
+	graph, err := h.service.Get(r.Context(), nodesQuery, edgesQuery)
 	if errors.Is(err, ErrNotFound) {
 		apihttp.WriteProblem(w, http.StatusNotFound, map[string]any{"detail": "memory not found"})
 		return
