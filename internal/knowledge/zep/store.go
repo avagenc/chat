@@ -16,6 +16,13 @@ import (
 	"github.com/getzep/zep-go/v3/client"
 )
 
+// Zep caps every page at 50 items regardless of the requested limit, so the
+// port's "whole graph" contract means draining pages here: the UUID of a
+// page's last item is the cursor for the next. maxGraphPages only bounds a
+// runaway loop (a graph past it is beyond what the explorer can render).
+const graphPageLimit = 50
+const maxGraphPages = 200
+
 // Store implements knowledge.Store on top of a Zep client.
 type Store struct {
 	client *client.Client
@@ -28,8 +35,44 @@ func NewStore(client *client.Client) *Store {
 
 var _ knowledge.Store = (*Store)(nil)
 
-func (s *Store) Nodes(ctx context.Context, userID string, query *knowledge.GraphQuery) ([]*knowledge.Node, error) {
-	nodes, err := s.client.Graph.Node.GetByUserID(ctx, userID, graphNodesRequest(query))
+// drain collects every page of a Zep graph list. fetch returns one page
+// given the cursor; uuid identifies an item so the cursor can advance (and
+// a server that ignores cursors gets caught instead of looping forever).
+func drain[T any](fetch func(cursor *string) ([]T, error), uuid func(T) string) ([]T, error) {
+	var out []T
+	var cursor *string
+	for range maxGraphPages {
+		page, err := fetch(cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		out = append(out, page...)
+		last := uuid(page[len(page)-1])
+		if cursor != nil && *cursor == last {
+			break
+		}
+		cursor = &last
+		if len(page) < graphPageLimit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) Nodes(ctx context.Context, userID string) ([]*knowledge.Node, error) {
+	nodes, err := drain(
+		func(cursor *string) ([]*zep.EntityNode, error) {
+			limit := graphPageLimit
+			return s.client.Graph.Node.GetByUserID(ctx, userID, &zep.GraphNodesRequest{
+				Limit:      &limit,
+				UUIDCursor: cursor,
+			})
+		},
+		func(n *zep.EntityNode) string { return n.UUID },
+	)
 	if err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
@@ -44,8 +87,17 @@ func (s *Store) Nodes(ctx context.Context, userID string, query *knowledge.Graph
 	return out, nil
 }
 
-func (s *Store) Edges(ctx context.Context, userID string, query *knowledge.GraphQuery) ([]*knowledge.Edge, error) {
-	edges, err := s.client.Graph.Edge.GetByUserID(ctx, userID, graphEdgesRequest(query))
+func (s *Store) Edges(ctx context.Context, userID string) ([]*knowledge.Edge, error) {
+	edges, err := drain(
+		func(cursor *string) ([]*zep.EntityEdge, error) {
+			limit := graphPageLimit
+			return s.client.Graph.Edge.GetByUserID(ctx, userID, &zep.GraphEdgesRequest{
+				Limit:      &limit,
+				UUIDCursor: cursor,
+			})
+		},
+		func(e *zep.EntityEdge) string { return e.UUID },
+	)
 	if err != nil {
 		var notFound *zep.NotFoundError
 		if errors.As(err, &notFound) {
@@ -71,26 +123,6 @@ func (s *Store) Delete(ctx context.Context, userID string) error {
 		return fmt.Errorf("delete user %q: %w", userID, err)
 	}
 	return nil
-}
-
-func graphNodesRequest(q *knowledge.GraphQuery) *zep.GraphNodesRequest {
-	if q == nil {
-		return &zep.GraphNodesRequest{}
-	}
-	return &zep.GraphNodesRequest{
-		Limit:      q.Limit,
-		UUIDCursor: q.UUIDCursor,
-	}
-}
-
-func graphEdgesRequest(q *knowledge.GraphQuery) *zep.GraphEdgesRequest {
-	if q == nil {
-		return &zep.GraphEdgesRequest{}
-	}
-	return &zep.GraphEdgesRequest{
-		Limit:      q.Limit,
-		UUIDCursor: q.UUIDCursor,
-	}
 }
 
 func node(n *zep.EntityNode) *knowledge.Node {
