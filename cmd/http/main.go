@@ -341,6 +341,10 @@ func main() {
 		log.Fatalf("fatal: init cloud tasks client: %v", err)
 	}
 	defer cloudTasksClient.Close()
+	posteraAPIKey := os.Getenv("POSTERA_API_KEY")
+	if posteraAPIKey == "" {
+		log.Fatal("fatal: POSTERA_API_KEY is required")
+	}
 	posteraEnqueuer, err := posteracloudtasks.NewEnqueuer(
 		cloudTasksClient,
 		gcpProjectID,
@@ -349,8 +353,8 @@ func main() {
 		posteracloudtasks.WithTargetURL(hostURL+avaAwakenEndpoint),
 		posteracloudtasks.WithServiceAccountEmail(gcpRuntimeSAEmail),
 		posteracloudtasks.WithHumanHeader("user-id"),
-		posteracloudtasks.WithSessionHeader("session-id"),
 		posteracloudtasks.WithMetadataHeader("timezone", "time-zone"),
+		posteracloudtasks.WithFixedHeader("api-key", posteraAPIKey),
 	)
 	if err != nil {
 		log.Fatalf("fatal: init postera enqueuer: %v", err)
@@ -409,10 +413,21 @@ func main() {
 			http.HandlerFunc(avaHandler.HandleHuman),
 		))),
 	)
-	cloudTasksAuthenticator := identity.NewCloudTasksAuthenticator(hostURL+avaAwakenEndpoint, gcpRuntimeSAEmail)
+	thirdPartyAPIKey := os.Getenv("THIRD_PARTY_API_KEY")
+	if thirdPartyAPIKey == "" {
+		log.Fatal("fatal: THIRD_PARTY_API_KEY is required")
+	}
+	thirdPartyAuthenticator := identity.NewAPIKeyAuthenticator(thirdPartyAPIKey)
+	mux.Handle(
+		"POST /ava/voice",
+		thirdPartyAuthenticator.Authenticate(apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
+			http.HandlerFunc(avaHandler.HandleVoice),
+		)))),
+	)
+	posteraAuthenticator := identity.NewAPIKeyAuthenticator(posteraAPIKey)
 	mux.Handle(
 		"POST "+avaAwakenEndpoint,
-		cloudTasksAuthenticator.Authenticate(apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
+		posteraAuthenticator.Authenticate(apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleSelfAwaken),
 		)))),
 	)
@@ -553,8 +568,8 @@ func main() {
 		port = "8080"
 	}
 	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: cors(mux),
+		Addr:              ":" + port,
+		Handler:           cors(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      310 * time.Second,

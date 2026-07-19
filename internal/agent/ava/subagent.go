@@ -19,10 +19,10 @@ import (
 )
 
 type subAgent struct {
-	name        string
-	description string
-	runner      *runner.Runner
-	biller      *wallet.Biller
+	name            string
+	description     string
+	runner          *runner.Runner
+	biller          *wallet.Biller
 	kindInstruction string
 	runInstruction  string
 }
