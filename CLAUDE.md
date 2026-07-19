@@ -153,6 +153,8 @@ Single-session per user: semua entry point (human → Ava/specialist, Ava → sp
 | `OAUTH_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state — satu untuk semua integrasi linking (domain separation via nama integrasi di mac) |
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`), token gworkspace (`gworkspace_tokens`) & token spotify (`spotify_tokens`) |
 | `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
+| `POSTERA_API_KEY` | Shared secret postera — dipasang enqueuer sebagai header `api-key` saat menjadwalkan task, lalu diverifikasi di `POST /ava/awaken` (`identity.NewAPIKeyAuthenticator`) |
+| `THIRD_PARTY_API_KEY` | API key klien pihak ketiga — autentikasi `POST /ava/voice` |
 | `WALLET_DB_URL` | PostgreSQL connection string untuk wallet — database KHUSUS wallet (tabel tanpa prefix), terpisah dari postera |
 | `MIDTRANS_SERVER_KEY` | (Opsional - saat ini di-comment out) Server key Midtrans — auth Snap API (create transaction) + verifikasi signature webhook top-up |
 | `MIDTRANS_BASE_URL` | (Opsional - saat ini di-comment out) Host Midtrans: `https://app.sandbox.midtrans.com` (dev) / `https://app.midtrans.com` (production) |
