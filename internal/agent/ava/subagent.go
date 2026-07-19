@@ -23,23 +23,25 @@ type subAgent struct {
 	description string
 	runner      *runner.Runner
 	biller      *wallet.Biller
-	// kindInstruction is the specialist-kind behavioral layer (specialist.KindInstruction).
-	// This adapter runs a specialist, so it seeds the specialist kind — not Ava's —
-	// into the run, mirroring what specialist.HandleHuman does for the direct entry.
 	kindInstruction string
+	runInstruction  string
 }
 
 var _ ava.SubAgent = (*subAgent)(nil)
 
-func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, kindInstruction string) ava.SubAgent {
-	return &subAgent{name: a.Name(), description: a.Description(), runner: r, biller: b, kindInstruction: kindInstruction}
+func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, kindInstruction, runInstruction string) ava.SubAgent {
+	return &subAgent{
+		name:            a.Name(),
+		description:     a.Description(),
+		runner:          r,
+		biller:          b,
+		kindInstruction: kindInstruction,
+		runInstruction:  runInstruction,
+	}
 }
 
 func (s *subAgent) Name() string        { return s.name }
 func (s *subAgent) Description() string { return s.description }
-
-//go:embed specialist-ran-by-ava-instruction.txt
-var specialistRanByAvaInstruction string
 
 func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 	userID, err := apiuser.IDFromContext(ctx)
@@ -61,8 +63,9 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
+			agent.ChannelInstructionDeltaKey:      "",
 			agent.KindSpecificInstructionDeltaKey: s.kindInstruction,
-			agent.RunInstructionDeltaKey:          specialistRanByAvaInstruction,
+			agent.RunInstructionDeltaKey:          s.runInstruction,
 		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.

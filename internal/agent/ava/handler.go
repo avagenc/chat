@@ -24,6 +24,9 @@ import (
 //go:embed instruction.txt
 var kindInstruction string
 
+//go:embed ran-in-text-channel-instruction.txt
+var textChannelInstruction string
+
 type Handler struct {
 	runner *runner.Runner
 	biller *wallet.Biller
@@ -69,6 +72,7 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
+			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
 			agent.KindSpecificInstructionDeltaKey: kindInstruction,
 			agent.RunInstructionDeltaKey:          "",
 		}),
@@ -103,8 +107,8 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	apihttp.WriteProblem(w, http.StatusBadGateway, map[string]any{"detail": "no final response from agent"})
 }
 
-//go:embed ava-ran-by-postera-instruction.txt
-var avaRanByPosteraInstruction string
+//go:embed ran-by-postera-instruction.txt
+var ranByPosteraInstruction string
 
 func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
@@ -145,8 +149,9 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
+			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
 			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          avaRanByPosteraInstruction,
+			agent.RunInstructionDeltaKey:          ranByPosteraInstruction,
 		}),
 	)
 	var usage wallet.Usage
