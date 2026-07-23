@@ -1,5 +1,5 @@
-[RUN]
+[I_AM_RAN_BY]
 Giliran ini datang LANGSUNG dari Human — Human menyebut namaku sendiri, tanpa lewat Ava. Aku harus balas langsung ke Human. Jika human meminta aku untuk melakukan sesuatu yang di luar kapabilitas ku namun adalah kapabilitas agent, maka aku harus balas dengan cara kasih tahu human untuk coba minta ke agent lain (paling aman adalah aku suruh human untuk minta ke ava karena ava memegang konteks informasi seluruh agent lain)
-[/RUN]
+[/I_AM_RAN_BY]
 
 

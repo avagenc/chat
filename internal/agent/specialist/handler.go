@@ -18,21 +18,15 @@ import (
 	"google.golang.org/genai"
 )
 
-// KindInstruction is the specialist-kind behavioral layer, injected into the
-// KindSpecificInstructionDeltaKey on every specialist run. It is exported
-// because a specialist runs from two entry points that both must set it: this
-// handler (human → specialist) and Ava's subagent (Ava → specialist, wired in
-// main). The ava package cannot //go:embed a file outside its own directory, so
-// main passes this string to ava.NewSubAgent.
-//
 //go:embed instruction.txt
 var KindInstruction string
 
+//go:embed ran-by-ava-instruction.txt
+var RanByAvaInstruction string
+
 type Handler struct {
-	runner *runner.Runner
-	biller *wallet.Biller
-	// agentName identifies which specialist this handler instance fronts
-	// (one instance per runner), for the billing receipt.
+	runner    *runner.Runner
+	biller    *wallet.Biller
 	agentName string
 }
 
@@ -40,8 +34,8 @@ func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *Handler {
 	return &Handler{runner: r, biller: b, agentName: agentName}
 }
 
-//go:embed specialist-ran-by-human-instruction.txt
-var specialistRanByHumanInstruction string
+//go:embed ran-by-human-instruction.txt
+var ranByHumanInstruction string
 
 func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -72,8 +66,9 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
+			agent.ChannelInstructionDeltaKey:      "",
 			agent.KindSpecificInstructionDeltaKey: KindInstruction,
-			agent.RunInstructionDeltaKey:          specialistRanByHumanInstruction,
+			agent.RunInstructionDeltaKey:          ranByHumanInstruction,
 		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.

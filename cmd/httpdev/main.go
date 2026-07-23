@@ -303,9 +303,9 @@ func main() {
 		))),
 	)
 	// 6. Ava
-	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.KindInstruction)
-	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.KindInstruction)
-	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.KindInstruction)
+	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
+	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
+	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
 	gcpRuntimeSAEmail := os.Getenv("GCP_RUNTIME_SA_EMAIL")
 	if gcpRuntimeSAEmail == "" {
 		log.Fatal("fatal: GCP_RUNTIME_SA_EMAIL is required")
@@ -336,7 +336,6 @@ func main() {
 		posteracloudtasks.WithTargetURL(hostURL+avaAwakenEndpoint),
 		posteracloudtasks.WithServiceAccountEmail(gcpRuntimeSAEmail),
 		posteracloudtasks.WithHumanHeader("user-id"),
-		posteracloudtasks.WithSessionHeader("session-id"),
 		posteracloudtasks.WithMetadataHeader("timezone", "time-zone"),
 	)
 	if err != nil {
@@ -394,6 +393,12 @@ func main() {
 		"POST /ava",
 		apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
 			http.HandlerFunc(avaHandler.HandleHuman),
+		))),
+	)
+	mux.Handle(
+		"POST /ava/voice",
+		apiuser.HTTPWithID(walletGuard.RequireBalance(apitime.HTTPWithZone(
+			http.HandlerFunc(avaHandler.HandleVoice),
 		))),
 	)
 	mux.Handle(
