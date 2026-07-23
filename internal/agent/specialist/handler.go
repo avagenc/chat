@@ -50,7 +50,7 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID := agent.SessionID(userID)
+	sessID := "chat-" + userID
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
