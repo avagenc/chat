@@ -13,16 +13,12 @@ import (
 	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
-	apisess "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/genai"
 )
-
-//go:embed instruction.txt
-var kindInstruction string
 
 //go:embed ran-in-text-channel-instruction.txt
 var textChannelInstruction string
@@ -49,20 +45,13 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID := agent.SessionID(userID)
+	sessID := "chat-" + userID
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	// Put the session in context too: Ava's postera tools scope notes by the
-	// session read from context (WithSessionFromContext in main).
-	ctx, err := apisess.ContextWithID(r.Context(), sessID)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
-		return
-	}
-	ctx = adkzep.WithTimezone(ctx, tz)
+	ctx := adkzep.WithTimezone(r.Context(), tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
@@ -72,9 +61,8 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          "",
+			agent.ChannelInstructionDeltaKey: textChannelInstruction,
+			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
 	var usage wallet.Usage
@@ -123,18 +111,13 @@ func (h *Handler) HandleVoice(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID := agent.SessionID(userID)
+	sessID := "chat-" + userID
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	ctx, err := apisess.ContextWithID(r.Context(), sessID)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
-		return
-	}
-	ctx = adkzep.WithTimezone(ctx, tz)
+	ctx := adkzep.WithTimezone(r.Context(), tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "human"})
 	msg := genai.NewContentFromText(req.Message, genai.RoleUser)
 	runEvents := h.runner.Run(
@@ -144,9 +127,8 @@ func (h *Handler) HandleVoice(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      voiceChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          "",
+			agent.ChannelInstructionDeltaKey: voiceChannelInstruction,
+			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
 	var usage wallet.Usage
@@ -198,20 +180,13 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 		return
 	}
-	sessID := agent.SessionID(userID)
+	sessID := "chat-" + userID
 	tz, err := apitime.ZoneFromContext(r.Context())
 	if err != nil {
 		apihttp.WriteProblem(w, http.StatusBadRequest, map[string]any{"detail": "timezone required"})
 		return
 	}
-	// Put the session in context too: an awoken Ava may schedule further
-	// postera notes, which scope by the session read from context.
-	ctx, err := apisess.ContextWithID(r.Context(), sessID)
-	if err != nil {
-		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "failed to set session"})
-		return
-	}
-	ctx = adkzep.WithTimezone(ctx, tz)
+	ctx := adkzep.WithTimezone(r.Context(), tz)
 	ctx = adkzep.WithSpeaker(ctx, adkzep.Speaker{Name: "postera", Role: zep.RoleTypeSystemRole})
 	msg := genai.NewContentFromText(message, genai.RoleUser)
 	runEvents := h.runner.Run(
@@ -221,9 +196,8 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          ranByPosteraInstruction,
+			agent.ChannelInstructionDeltaKey: textChannelInstruction,
+			agent.RunInstructionDeltaKey:     ranByPosteraInstruction,
 		}),
 	)
 	var usage wallet.Usage

@@ -113,7 +113,7 @@ Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer 
 
 Endpoints (semua DELETE balas `204 No Content`):
 
-- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`agent.SessionID`), jadi TANPA param sessionID di path.
+- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`"chat-" + userID` inline di tiap pemakaian), jadi TANPA param sessionID di path.
 - `/knowledge` — GET/DELETE knowledge graph. GET membalas graf UTUH (`{nodes, edges}`) — tidak ada param `limit`/`cursor`, adapter Zep yang menguras halamannya. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
 - `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
 
@@ -135,7 +135,7 @@ Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `W
 
 Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — TAPI TETAP diautentikasi: `identity.CloudTasksAuthenticator` memverifikasi OIDC token Google yang dipasang Cloud Tasks (audience = URL target `/ava/awaken`, email = `GCP_RUNTIME_SA_EMAIL`) SEBELUM `apiuser.HTTPWithID` membaca header `user-id`. Tanpa verifikasi ini header `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. Session-nya diturunkan dari user (`chat-{userID}`), bukan dari header.
 
-Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` via `agent.SessionID`. Handler agent tidak lagi menerima `session-id` dari header/context; Ava menyuntikkannya ke context (`apisession.ContextWithID`) hanya supaya postera bisa men-scope note-nya.
+Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` (`"chat-" + userID` inline di tiap pemakaian). Handler agent tidak menerima `session-id` dari header/context. Postera TIDAK di-wire dengan `WithSessionFromContext`: karena single-session-per-user, `Session` posterum selalu sama dengan `Human`-nya, jadi scoping tambahan itu tidak pernah menambah pembatasan apa pun di atas scoping `Human` yang sudah ada — redundant, bukan defense-in-depth.
 
 ## Environment variables
 
