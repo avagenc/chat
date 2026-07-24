@@ -10,7 +10,7 @@ import (
 	"github.com/avagenc/chat/internal/agent"
 	"github.com/avagenc/chat/internal/wallet"
 	"go.avagenc.com/ava"
-	adkzep "go.naturallyfunny.dev/adk/zep"
+	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	adkagent "google.golang.org/adk/agent"

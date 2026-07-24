@@ -38,7 +38,7 @@ import (
 	"go.avagenc.com/rafal"
 	"go.avagenc.com/yori"
 	"go.avagenc.com/zee"
-	adkzep "go.naturallyfunny.dev/adk/zep"
+	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
