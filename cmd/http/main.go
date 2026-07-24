@@ -344,7 +344,7 @@ func main() {
 	if posteraAPIKey == "" {
 		log.Fatal("fatal: POSTERA_API_KEY is required")
 	}
-	posteraEnqueuer, err := posteracloudtasks.NewEnqueuer(
+	posteraQueue, err := posteracloudtasks.NewQueue(
 		cloudTasksClient,
 		gcpProjectID,
 		cloudTasksLocationID,
@@ -356,7 +356,7 @@ func main() {
 		posteracloudtasks.WithFixedHeader("api-key", posteraAPIKey),
 	)
 	if err != nil {
-		log.Fatalf("fatal: init postera enqueuer: %v", err)
+		log.Fatalf("fatal: init postera queue: %v", err)
 	}
 	posteraDBURL := os.Getenv("POSTERA_DB_URL")
 	if posteraDBURL == "" {
@@ -377,7 +377,7 @@ func main() {
 	}
 	postarius, err := postera.New(
 		posteraStore,
-		posteraEnqueuer,
+		posteraQueue,
 		postera.WithHumanFromContext(apiuser.ContextKey),
 		postera.WithTimezoneFromContext(apitime.ContextKey),
 		postera.WithMetadataEntryFromContext("timezone", apitime.ContextKey),
