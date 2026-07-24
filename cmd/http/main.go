@@ -40,7 +40,6 @@ import (
 	"go.avagenc.com/zee"
 	adkzep "go.naturallyfunny.dev/adk/zep"
 	apihttp "go.naturallyfunny.dev/api/http"
-	apisession "go.naturallyfunny.dev/api/session"
 	apitime "go.naturallyfunny.dev/api/time"
 	apiuser "go.naturallyfunny.dev/api/user"
 	"go.naturallyfunny.dev/gworkspace"
@@ -381,7 +380,6 @@ func main() {
 		posteraEnqueuer,
 		postera.WithHumanFromContext(apiuser.ContextKey),
 		postera.WithTimezoneFromContext(apitime.ContextKey),
-		postera.WithSessionFromContext(apisession.ContextKey),
 		postera.WithMetadataEntryFromContext("timezone", apitime.ContextKey),
 	)
 	if err != nil {
