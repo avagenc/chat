@@ -10,8 +10,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/zmb3/spotify/v2 v2.4.3
-	go.avagenc.com/ava v0.7.0
-	go.avagenc.com/yori v0.2.0
+	go.avagenc.com/ava v0.7.1
+	go.avagenc.com/yori v0.3.0
 	go.avagenc.com/zee v0.6.1
 	go.naturallyfunny.dev/adk v1.35.0
 	go.naturallyfunny.dev/api v1.15.0
@@ -25,6 +25,7 @@ require (
 require (
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
+	go.naturallyfunny.dev/agentkit v0.2.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
 
@@ -66,7 +67,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
-	go.avagenc.com/rafal v0.1.0
+	go.avagenc.com/rafal v0.1.1
 	go.naturallyfunny.dev/gworkspace v0.7.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.43.0 // indirect
