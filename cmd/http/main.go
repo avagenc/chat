@@ -197,7 +197,7 @@ func main() {
 	}
 	tuyaIoTClient := cloud.NewIoT(tuyaCloudClient)
 	tuyaAppClient := tuya.New(tuyaIoTClient, tuyaAccountStore)
-	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppClient, AdditionalInstruction: agent.Instruction()})
+	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppClient, AdditionalInstruction: specialist.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build zee agent: %v", err)
 	}
@@ -257,7 +257,7 @@ func main() {
 		Endpoint:     google.Endpoint,
 		Scopes:       gworkspaceScopes,
 	})
-	rafalAgent, err := rafal.New(rafal.Config{Model: agentModel, WorkspaceClient: gworkspaceClient, AdditionalInstruction: agent.Instruction()})
+	rafalAgent, err := rafal.New(rafal.Config{Model: agentModel, WorkspaceClient: gworkspaceClient, AdditionalInstruction: specialist.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build rafal agent: %v", err)
 	}
@@ -294,7 +294,7 @@ func main() {
 		spotifyauth.WithRedirectURL(spotifyRedirectURL),
 		spotifyauth.WithScopes(spotify.RequiredScopes...),
 	))
-	yoriAgent, err := yori.New(yori.Config{Model: agentModel, SpotifyClient: spotifyClient, AdditionalInstruction: agent.Instruction()})
+	yoriAgent, err := yori.New(yori.Config{Model: agentModel, SpotifyClient: spotifyClient, AdditionalInstruction: specialist.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build yori agent: %v", err)
 	}
@@ -316,9 +316,9 @@ func main() {
 		))),
 	)
 	// 6. Ava
-	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
-	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
-	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.KindInstruction, specialist.RanByAvaInstruction)
+	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.RanByAvaInstruction)
+	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.RanByAvaInstruction)
+	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.RanByAvaInstruction)
 	gcpRuntimeSAEmail := os.Getenv("GCP_RUNTIME_SA_EMAIL")
 	if gcpRuntimeSAEmail == "" {
 		log.Fatal("fatal: GCP_RUNTIME_SA_EMAIL is required")
@@ -391,7 +391,7 @@ func main() {
 		Model:                 agentModel,
 		Postarius:             postarius,
 		SubAgents:             []ava.SubAgent{zeeAvaSubAgent, rafalAvaSubAgent, yoriAvaSubAgent},
-		AdditionalInstruction: agent.Instruction(),
+		AdditionalInstruction: internalava.Instruction(),
 	})
 	if err != nil {
 		log.Fatalf("fatal: build ava agent: %v", err)

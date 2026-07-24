@@ -21,9 +21,6 @@ import (
 	"google.golang.org/genai"
 )
 
-//go:embed instruction.txt
-var kindInstruction string
-
 //go:embed ran-in-text-channel-instruction.txt
 var textChannelInstruction string
 
@@ -72,9 +69,8 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          "",
+			agent.ChannelInstructionDeltaKey: textChannelInstruction,
+			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
 	var usage wallet.Usage
@@ -144,9 +140,8 @@ func (h *Handler) HandleVoice(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      voiceChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          "",
+			agent.ChannelInstructionDeltaKey: voiceChannelInstruction,
+			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
 	var usage wallet.Usage
@@ -221,9 +216,8 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      textChannelInstruction,
-			agent.KindSpecificInstructionDeltaKey: kindInstruction,
-			agent.RunInstructionDeltaKey:          ranByPosteraInstruction,
+			agent.ChannelInstructionDeltaKey: textChannelInstruction,
+			agent.RunInstructionDeltaKey:     ranByPosteraInstruction,
 		}),
 	)
 	var usage wallet.Usage

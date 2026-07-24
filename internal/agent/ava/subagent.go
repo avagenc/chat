@@ -19,24 +19,22 @@ import (
 )
 
 type subAgent struct {
-	name            string
-	description     string
-	runner          *runner.Runner
-	biller          *wallet.Biller
-	kindInstruction string
-	runInstruction  string
+	name           string
+	description    string
+	runner         *runner.Runner
+	biller         *wallet.Biller
+	runInstruction string
 }
 
 var _ ava.SubAgent = (*subAgent)(nil)
 
-func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, kindInstruction, runInstruction string) ava.SubAgent {
+func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, runInstruction string) ava.SubAgent {
 	return &subAgent{
-		name:            a.Name(),
-		description:     a.Description(),
-		runner:          r,
-		biller:          b,
-		kindInstruction: kindInstruction,
-		runInstruction:  runInstruction,
+		name:           a.Name(),
+		description:    a.Description(),
+		runner:         r,
+		biller:         b,
+		runInstruction: runInstruction,
 	}
 }
 
@@ -63,9 +61,8 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 		msg,
 		adkagent.RunConfig{},
 		runner.WithStateDelta(map[string]any{
-			agent.ChannelInstructionDeltaKey:      "",
-			agent.KindSpecificInstructionDeltaKey: s.kindInstruction,
-			agent.RunInstructionDeltaKey:          s.runInstruction,
+			agent.ChannelInstructionDeltaKey: "",
+			agent.RunInstructionDeltaKey:     s.runInstruction,
 		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
