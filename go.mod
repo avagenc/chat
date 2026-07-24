@@ -12,7 +12,7 @@ require (
 	github.com/zmb3/spotify/v2 v2.4.3
 	go.avagenc.com/ava v0.7.0
 	go.avagenc.com/yori v0.2.0
-	go.avagenc.com/zee v0.6.0
+	go.avagenc.com/zee v0.6.1
 	go.naturallyfunny.dev/adk v1.35.0
 	go.naturallyfunny.dev/api v1.15.0
 	go.naturallyfunny.dev/postera v0.22.0
