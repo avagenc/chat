@@ -318,10 +318,6 @@ func main() {
 	zeeAvaSubAgent := internalava.NewSubAgent(zeeAgent, zeeRunner, biller, specialist.RanByAvaInstruction)
 	rafalAvaSubAgent := internalava.NewSubAgent(rafalAgent, rafalRunner, biller, specialist.RanByAvaInstruction)
 	yoriAvaSubAgent := internalava.NewSubAgent(yoriAgent, yoriRunner, biller, specialist.RanByAvaInstruction)
-	gcpRuntimeSAEmail := os.Getenv("GCP_RUNTIME_SA_EMAIL")
-	if gcpRuntimeSAEmail == "" {
-		log.Fatal("fatal: GCP_RUNTIME_SA_EMAIL is required")
-	}
 	hostURL := os.Getenv("HOST_URL")
 	if hostURL == "" {
 		log.Fatal("fatal: HOST_URL is required")
@@ -350,7 +346,6 @@ func main() {
 		cloudTasksLocationID,
 		cloudTasksQueueID,
 		posteracloudtasks.WithTargetURL(hostURL+avaAwakenEndpoint),
-		posteracloudtasks.WithServiceAccountEmail(gcpRuntimeSAEmail),
 		posteracloudtasks.WithHumanHeader("user-id"),
 		posteracloudtasks.WithMetadataHeader("timezone", "time-zone"),
 		posteracloudtasks.WithFixedHeader("api-key", posteraAPIKey),
