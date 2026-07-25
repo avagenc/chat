@@ -1,201 +1,541 @@
 # platform
 
-Platform Avagenc Chat. Menerima request dari client, autentikasi via JWT, lalu menjalankan roster agent (Ava + specialist) **in-process** di atas satu Zep thread bersama, serta menangani domain memory sendiri.
+Platform Avagenc Chat. Menerima request dari client, autentikasi via JWT Firebase, lalu
+menjalankan roster agent (Ava + specialist) **in-process** di atas satu Zep thread
+bersama, serta menangani domain memory, wallet, dan linking sendiri.
 
-## Struktur
+README.md menjelaskan ARSITEKTUR dan REASONING untuk pembaca luar. File ini adalah
+**perjanjian kerja**: aturan yang mengikat saat menulis kode di repo ini. Kalau README
+dan file ini berbeda soal cara menulis kode, file ini yang menang.
+
+---
+
+# BAGIAN 1 — PRINSIP & LARANGAN (WAJIB DIBACA SEBELUM MENULIS SATU BARIS PUN)
+
+> **Prinsip utama: clear over clever, explicit over implicit, idiomatic over pintar.**
+> Pattern lama package `agent` dibongkar habis justru karena melanggar ini: factory
+> `Build()` yang opaque, hidden wiring, map dispatch, nama generik. JANGAN PERNAH
+> ulangi pola itu dalam bentuk apa pun, sekalipun terlihat "lebih rapi" atau "lebih
+> DRY". Aturan di bawah bukan saran — ini mengikat.
+
+## 1.1 Larangan keras (jangan lakukan, tanpa perlu bertanya)
+
+- **DILARANG factory serba-bisa.** Tidak ada `Build()`, `Setup()`, `Wire()`,
+  `NewEverything()` yang membuat dependency-nya sendiri di dalam. Gejala salah: di
+  `main.go` cuma `x := pkg.Build(cfg)` dan seluruh graf dependency lahir tersembunyi.
+- **DILARANG hidden DI / hidden wiring.** Tidak ada container, tidak ada reflection,
+  tidak ada code generation untuk dependency. Semua lewat parameter konstruktor,
+  kelihatan di `main.go`.
+- **DILARANG map/list dispatch lewat path param.** Tidak ada `/{agent}` +
+  `map[string]*runner.Runner`. Satu handler per hal konkret, satu route eksplisit.
+  Nambah agent = nambah blok wiring eksplisit. Biaya yang kelihatan itu FITUR.
+- **DILARANG helper/wrapper untuk hal yang sudah simple.** Tidak ada `respondRun()`,
+  `collect()`, `sessionID()`, `mustEnv()`. `runner.Run` dipanggil LANGSUNG di handler.
+  Wrapper satu baris di atas concatenation string adalah indireksi tanpa informasi —
+  sudah pernah dibuat dan sudah dibongkar (commit `596f7f0`).
+  **Uji kelayakan wrapper: kalau tanda tangannya butuh semua variasi call site sebagai
+  parameter, dia tidak mengabstraksi apa pun — dia cuma memindahkan kode.**
+- **DILARANG abstraksi spekulatif.** Interface dibuat kalau ADA konsumen yang
+  membutuhkannya SEKARANG atau ada seam nyata (adapter kedua, test integrasi).
+  Interface "untuk jaga-jaga" adalah utang, bukan fleksibilitas.
+- **DILARANG service layer kosong.** `Service` ada HANYA kalau ada logika bisnis nyata
+  (ownership check, orkestrasi multi-step). `internal/postera` sengaja TIDAK punya
+  service karena tidak ada logika untuk ditaruh di sana.
+- **DILARANG panic di-recover.** Panic harus crash. Konfigurasi kurang = `log.Fatal`
+  saat boot, bukan nil-pointer saat request ke-100. Tidak ada middleware recovery yang
+  menyembunyikan bug.
+- **DILARANG `float64` di jalur nilai uang.** Semua rupiah adalah `int64` micro-rupiah.
+  Tidak ada pengecualian.
+- **DILARANG menambah fitur yang tidak diminta.** Kerjakan persis yang diminta. Kalau
+  menemukan masalah lain, LAPORKAN, jangan diam-diam diperbaiki sambil lewat.
+- **DILARANG menambah dependency tanpa alasan yang tidak bisa dijawab stdlib.** Router
+  pihak ketiga sudah dibuang (commit `0a7289b`) karena `net/http.ServeMux` Go 1.22+
+  sudah cukup. Setiap dependency baru harus bisa menjawab: "apa yang stdlib tidak bisa?"
+- **DILARANG mock testing.** Tidak ada library mock, tidak ada unit test handler yang
+  memverifikasi ekspektasi panggilan. Lihat §1.5.
+
+## 1.2 Keharusan (lakukan, selalu)
+
+- **Wiring EKSPLISIT di consumer (`cmd/http/main.go`), seragam untuk semua fitur.**
+  Dependency dibuat satu per satu di main dan dioper ke konstruktor. `main.go` adalah
+  satu-satunya kebenaran global sistem ini; panjangnya bukan kompleksitas, itu
+  keterbukaan.
+- **Package cuma menyediakan konstruktor kecil yang MENERIMA dependency sudah-jadi**
+  (`ava.NewHandler`, `specialist.NewHandler`, `ava.NewSubAgent`, `wallet.NewBiller`).
+- **Konstruktor terima interface, bukan tipe konkret**, kalau memungkinkan.
+- **Consumer-defined interface.** Port dideklarasikan oleh package yang
+  MEMBUTUHKANNYA, seukuran yang dipakai, diimplementasikan adapter di subpackage
+  sebelahnya. Package fitur TIDAK PERNAH import adapter-nya sendiri. Ini yang bikin
+  graf import bersih dan bisa dicek `go list` — bukan cuma diklaim di dokumen.
+- **Urutan middleware adalah properti keamanan** dan harus terbaca dalam satu ekspresi
+  di `main.go`. Contoh `/ava/awaken`: API key diverifikasi DULU, baru header `user-id`
+  dibaca. Kalau dibalik, siapa pun bisa menguras wallet user lain.
+- **Sentinel error per fitur**, bukan satu yang dipakai bersama. Adapter menerjemahkan
+  error backend ke sentinel; consumer cocokkan via `errors.Is`. `ErrForbidden`
+  di-mint oleh Service, TIDAK PERNAH oleh adapter — storage tidak berhak memutuskan
+  otorisasi karena storage tidak punya informasinya.
+- **Fail fast saat boot.** Env kosong → `log.Fatal`. Skema DB tidak ada → gagal di
+  `NewLedger`, bukan gagal saat charge pertama.
+- **Teks instruksi/prompt → `//go:embed` file `.txt` terpisah**, satu file per
+  konsep/channel. Tidak ada prompt sebagai string literal di dalam `.go`.
+
+## 1.3 Gaya penulisan Go
+
+- **Deklarasi (var, const, type) taruh TEPAT SEBELUM pertama kali dipakai**, bukan
+  ditumpuk di atas file karena terlihat "rapi". Pembaca harus bisa baca dari atas ke
+  bawah tanpa scroll ke mana-mana untuk tahu sebuah identifier itu apa. Contoh benar:
+  `internal/agent/ava/handler.go` — tiap `//go:embed` channel instruction berdiri tepat
+  di atas handler yang memakainya.
+- **Vertical slice per konsep — satu file = satu konsep lengkap.** `ava/handler.go`
+  hanya handler Ava. `ava/subagent.go` hanya adapter sub-agent. BUKAN satu `ava.go`
+  campur aduk.
+- **Adapter hidup di sisi KONSUMEN, bukan sisi yang diadaptasi.** `ava.NewSubAgent` ada
+  di `internal/agent/ava/` karena `ava.SubAgent` adalah kontrak Ava; specialist tidak
+  tahu-menahu soal Ava.
+- **Package tinggal di samping hal yang MENDEFINISIKAN TUJUANNYA.** Adapter zep di
+  samping kontrak session/knowledge yang dia implement; adapter postgres di samping
+  kontrak wallet; handler linking gworkspace di bawah `internal/link` karena tujuannya
+  fitur linking app ini.
+- **Tidak ada nama file stutter** (`pkg/pkg.go`). Doc comment package taruh di file
+  fitur utama, BUKAN `doc.go` terpisah. Deklarasi lintas-fitur taruh di file spine
+  (`handler.go`, `instruction.go`).
+- **Nama jujur & spesifik.** Method = aksi sebenarnya (`HandleHuman`,
+  `HandleSelfAwaken`, `HandleVoice`), BUKAN `Chat()`/`Handle()`/`Process()` generik.
+- **Handler thin.** Hanya HTTP glue: extract param, panggil service/runner, map error
+  ke status code. Tidak ada logika bisnis di handler.
+
+## 1.4 Comment: WAJIB menjelaskan KENAPA, DILARANG mengulang APA
+
+Ini aturan yang paling sering dilanggar, jadi dieksplisitkan:
+
+- **WAJIB**: doc comment package yang menjelaskan alasan package itu ada dan batasnya;
+  comment di atas port/kontrak yang menjelaskan invariant dan konvensi (mis. konvensi
+  credit-positive di `wallet/ledger.go`); comment yang menjelaskan keputusan
+  non-obvious atau yang akan SALAH DIBACA reviewer (kenapa balasan final kosong itu
+  SUKSES, kenapa `context.WithoutCancel` dipakai, kenapa posting di-sort sebelum
+  dikunci).
+- **DILARANG**: comment yang menarasikan kode. `// increment counter` di atas `i++`.
+  `// Handler is a handler.` Kalau comment-nya bisa dihapus tanpa ada informasi yang
+  hilang, hapus.
+- Direktif fungsional (`//go:embed`) jelas bukan comment biasa dan selalu boleh.
+
+Patokan: **kode menjelaskan APA; comment menjelaskan KENAPA dan APA YANG AKAN SALAH
+DIBACA.** Semua comment di repo ini sudah mengikuti pola itu — pertahankan, jangan
+tambahkan comment jenis lain.
+
+## 1.5 Testing
+
+- **Tidak ada mock testing.** Test perilaku nyata, bukan ekspektasi terhadap dobel.
+- **Integration test untuk yang menyentuh infrastruktur.** `wallet/postgres` dan
+  `wallet/midtrans` dites terhadap PostgreSQL sungguhan, SKIP kalau
+  `WALLET_TEST_DB_URL` tidak di-set. Tiap run DROP tabel dan apply ulang migrations —
+  arahkan ke database sekali pakai, JANGAN ke database bersama.
+- **Table-driven test untuk logika murni** yang bisa jalan tanpa infrastruktur:
+  `internal/link` (HMAC state), `internal/wallet` (aritmetika billing),
+  `internal/knowledge/zep` (drain pagination).
+- **In-memory `Ledger` di `wallet/biller_test.go` BUKAN mock.** Dia implementasi kedua
+  yang NYATA dari port yang sama, menjaga aturan balanced-postings, tanpa ekspektasi
+  terekam — justru bukti port-nya berguna. Kalau ragu bedanya: mock memverifikasi
+  PANGGILAN, implementasi kedua memverifikasi PERILAKU.
+- **DILARANG unit test handler dengan dobel HTTP.** Handler adalah glue; kegagalannya
+  adalah kegagalan wiring, dan itu tidak ditangkap test yang wiring-nya palsu.
+- Laporkan hasil test APA ADANYA. Test yang skip disebut skip, bukan disebut lulus.
+
+---
+
+# BAGIAN 2 — STRUKTUR
 
 ```
-cmd/http/main.go            — entrypoint, wire-up EKSPLISIT semua dependency (lihat Conventions → Komposisi)
-cmd/httpdev/main.go         — kembaran cmd/http KHUSUS DEVELOPMENT: wiring identik, tapi identitas user
-                              datang dari header `user-id` (apiuser.HTTPWithID), bukan Firebase bearer,
-                              jadi API bisa dipukul pakai curl polos. JANGAN pernah di-deploy.
-internal/agent/             — group chat in-process: satu runner per agent di atas Zep thread bersama.
-                              instruction.go = konstanta delta key + embed base-instruction.txt + func Instruction()
-                              ava_handler.go = AvaHandler (HandleHuman, HandleSelfAwaken)
-                              ava_subagent.go = avaSubAgent + ForAva (adapter specialist → ava.SubAgent)
-                              specialist_handler.go = SpecialistHandler (HandleHuman)
-internal/identity/          — Firebase autentikasi + payment guard middleware
-internal/link/              — user connect/disconnect akun eksternal. SATU SUBPACKAGE PER INTEGRASI;
-                              root hanya berisi shared code yang DITEMUKAN identik lintas integrasi,
-                              bukan diramal: state.go (OAuth state HMAC: SignState/VerifyState/StateTTL,
-                              dipakai gworkspace & spotify).
-internal/knowledge/         — memory semantik: knowledge graph user. service.go = port (Store,
-                              consumer-defined) + tipe domain + sentinel (ErrNotFound/ErrForbidden)
-                              + Service; handler.go = HTTP glue (Handler: HandleGet, HandleDelete).
-                              Port TANPA pagination: graf cuma bermakna kalau utuh (edge tanpa kedua
-                              ujungnya tidak bisa digambar), jadi Store mengembalikan graf UTUH.
-internal/knowledge/zep/     — adapter Zep: implement knowledge.Store, terjemahkan not-found Zep ke
-                              sentinel knowledge. Zep membatasi tiap halaman 50 item, jadi adapter
-                              yang MENGURAS halaman (drain, cursor = UUID item terakhir) — pagination
-                              adalah detail backend, bukan bocoran ke port maupun front end.
-internal/link/gworkspace    — linking Google Workspace: handler.go (Handler: HandleAuthURL, HandleConnect,
-                              HandleDisconnect).
-internal/link/spotify       — linking Spotify: handler.go, struktur sama persis dengan gworkspace
-                              (konsumen tokennya yori).
-internal/postera/           — memory prospektif: handler.go = HTTP glue di atas postera.Postarius
-                              eksternal (Handler: HandleListUpcoming, HandleCancel). Tanpa service/
-                              port — Postarius sendiri orchestrator yang scope-aware via context.
-internal/session/           — memory episodik: sessions + messages. service.go = port (Store,
-                              consumer-defined) + tipe domain + sentinel (ErrNotFound/ErrForbidden)
-                              + Service (ownership check); handler.go = HTTP glue (Handler:
-                              HandleGetMessages, HandleClearMessages).
-internal/session/zep/       — adapter Zep: implement session.Store ("thread" Zep = session domain),
-                              terjemahkan not-found Zep ke sentinel session. Sisi agent punya jalur
-                              Zep-nya sendiri: adkzep.
-internal/wallet/            — fitur wallet FIRST-PARTY, satu vertical slice: ledger.go (port Ledger
-                              DOUBLE-ENTRY: Transact = postings balanced jumlah nol, tipe Posting/
-                              Spec/Transaction/Entry, Kind open-set, sentinel ErrDuplicateRef,
-                              micro-rupiah int64 credit-positive, helper UserAccountID), biller.go
-                              (Usage/Price/Receipt + Biller.Charge — token usage → debit user +
-                              credit revenue), guard.go (RequireBalance middleware → 402), handler.go
-                              (GET /wallet, GET /wallet/usage/today). Lihat WALLET.md untuk keputusan
-                              desain + kontrak front end.
-internal/wallet/midtrans/   — top-up via Midtrans Snap, satu subpackage per integrasi (pola link):
-                              handler.go (HandleCreateTopup = POST /wallet/topup buat transaksi Snap,
-                              balas token + redirect URL, TANPA tulisan ledger; HandleNotification =
-                              webhook pembayaran, di luar auth Firebase, diautentikasi signature
-                              SHA-512 LALU dikonfirmasi ke status API Core Midtrans sebelum
-                              membukukan — amount/status/currency dari status API, bukan body
-                              (tahan bocornya server key) → Transact topup credit user debit pending,
-                              Ref = order ID, idempoten via ErrDuplicateRef → 200). Order ID
-                              `topup~{uid}~{nonce}` membawa binding user stateless. (Saat ini di-comment out di main.go).
-internal/wallet/postgres/   — adapter pgx di database KHUSUS wallet (tabel tanpa prefix): accounts
-                              (saldo termaterialisasi, row lock, lock order deterministik by account
-                              ID) + transactions (journal header: kind/ref/metadata) + entries
-                              (journal lines, append-only). Skema di migrations/ (format goose),
-                              dijalankan goose di pipeline deploy — runtime hanya VALIDASI tabel ada,
-                              tidak pernah DDL.
+cmd/http/main.go            entrypoint, wire-up EKSPLISIT semua dependency (§1.2)
+cmd/httpdev/                KEMBARAN cmd/http KHUSUS DEVELOPMENT: wiring identik, tapi
+                            identitas user datang dari header `user-id`
+                            (apiuser.HTTPWithID), bukan bearer Firebase, jadi API bisa
+                            dipukul pakai curl polos. UNTRACKED (.gitignore) dan JANGAN
+                            PERNAH di-deploy — Dockerfile build `./cmd/http` by name.
+                            Binary terpisah, BUKAN bypass ber-flag di binary produksi:
+                            binary yang tidak ada di image tidak bisa salah konfigurasi.
+cmd/wallet/{migrate,seed}/  CLI lokal untuk wallet DB. UNTRACKED juga.
+
+internal/agent/
+  instruction.go            TIGA konstanta state-delta key (ChannelInstructionDeltaKey,
+                            RunInstructionDeltaKey, SessionInstructionDeltaKey) + var
+                            Instruction (embed instruction.txt) = LAPIS DASAR bersama
+  instruction.txt           template base: isinya HANYA yang valid untuk KEDUA jenis
+                            agent. `%s` diisi tiap kind saat build; placeholder
+                            {channel_instruction}/{run_instruction}/{sess_instruction}
+                            dibiarkan utuh untuk di-resolve per run.
+  ava/handler.go            Handler Ava: HandleHuman (teks), HandleVoice, HandleSelfAwaken
+  ava/subagent.go           subAgent + NewSubAgent — adapter specialist → ava.SubAgent
+  ava/instruction.go        Instruction() = base + kind Ava
+  ava/*.txt                 instruction.txt (kind), ran-in-text-channel-instruction.txt,
+                            ran-in-voice-channel-instruction.txt,
+                            ran-by-postera-instruction.txt
+  specialist/handler.go     Handler specialist (dipakai zee, rafal, yori): HandleHuman
+  specialist/instruction.go Instruction() = base + kind Specialist
+  specialist/*.txt          instruction.txt (kind), ran-by-human-instruction.txt,
+                            ran-by-ava-instruction.txt (di-export sebagai
+                            RanByAvaInstruction, dioper ke ava.NewSubAgent di main)
+
+internal/identity/
+  firebase.go               FirebaseAuthenticator — verifikasi ID token via Admin SDK →
+                            apiuser.ContextWithID
+  apikey.go                 APIKeyAuthenticator — constant-time compare header `api-key`.
+                            Dipakai DUA KALI dengan secret berbeda: POSTERA_API_KEY
+                            untuk /ava/awaken, THIRD_PARTY_API_KEY untuk /ava/voice.
+
+internal/link/              user connect/disconnect akun eksternal. SATU SUBPACKAGE PER
+                            INTEGRASI; root hanya berisi shared code yang DITEMUKAN
+                            identik lintas integrasi, bukan diramal.
+  state.go                  OAuth state HMAC: SignState/VerifyState/StateTTL
+  state_test.go             table-driven (CSRF, cross-integration replay, expiry, tamper)
+  gworkspace/handler.go     HandleAuthURL, HandleStatus, HandleConnect, HandleDisconnect
+  spotify/handler.go        struktur sama persis dengan gworkspace
+  tuya/handler.go           HANYA HandleStatus — Tuya tidak punya OAuth publik di sini,
+                            akun di-link manual oleh tim (VIP onboarding)
+
+internal/knowledge/         memory SEMANTIK: knowledge graph user
+  service.go                port Store (consumer-defined) + tipe domain + sentinel
+                            (ErrNotFound/ErrForbidden) + Service. Port TANPA pagination:
+                            graf cuma bermakna kalau utuh (edge tanpa kedua ujungnya
+                            tidak bisa digambar), jadi Store mengembalikan graf UTUH.
+  handler.go                HandleGet, HandleDelete
+  zep/store.go              adapter Zep. Zep membatasi tiap halaman 50 item, jadi
+                            adapter yang MENGURAS halaman (drain, cursor = UUID item
+                            terakhir) — pagination adalah detail backend, tidak bocor ke
+                            port maupun front end.
+  zep/store_test.go         test drain: multi-halaman, kelipatan pas, backend yang
+                            mengabaikan cursor, page cap, error di tengah
+
+internal/session/           memory EPISODIK: sessions + messages
+  service.go                port Store + tipe domain + sentinel + Service (ownership
+                            check manual: Get thread → bandingkan UserID → baru Delete)
+  handler.go                HandleGetMessages, HandleClearMessages
+  zep/store.go              adapter Zep ("thread" Zep = session domain)
+
+internal/postera/handler.go memory PROSPEKTIF: HTTP glue di atas postera.Postarius
+                            eksternal (HandleListUpcoming, HandleCancel). TANPA
+                            service/port — Postarius sendiri orchestrator yang
+                            scope-aware via context.
+
+internal/wallet/            fitur wallet FIRST-PARTY, satu vertical slice
+  ledger.go                 port Ledger DOUBLE-ENTRY (Transact = postings balanced
+                            jumlah nol), tipe Posting/Spec/Transaction/Entry/
+                            EntriesQuery, Kind open-set, sentinel ErrDuplicateRef,
+                            micro-rupiah int64 credit-positive, helper UserAccountID,
+                            konstanta AccountRevenue/AccountPending
+  biller.go                 Usage/Price/Run/Receipt + Biller.Charge — token usage →
+                            debit user + credit revenue
+  guard.go                  Guard.RequireBalance middleware → 402
+  handler.go                HandleBalance (GET /wallet), HandleTodayUsage
+                            (GET /wallet/usage/today)
+  biller_test.go            aritmetika billing terhadap Ledger in-memory (§1.5)
+  midtrans/                 top-up via Midtrans Snap, satu subpackage per integrasi
+                            (pola link). LENGKAP + ADA TEST, tapi SAAT INI DI-COMMENT
+                            OUT di main.go menunggu keputusan produk.
+  postgres/                 adapter pgx di database KHUSUS wallet (tabel tanpa prefix):
+                            accounts (saldo termaterialisasi, row lock, lock order
+                            deterministik by account ID) + transactions (journal header)
+                            + entries (journal lines, append-only). Skema di migrations/
+                            (format goose), dijalankan goose di pipeline deploy —
+                            runtime hanya VALIDASI tabel ada, tidak pernah DDL.
 ```
 
-Catatan idiom: semua package app tinggal di `internal/` — kriterianya LIBRARY vs FIRST-PARTY, bukan
-rapi-tidaknya kontrak. Memory dulu package public di root (pola `image` + `image/png`) tapi
-diinternalkan karena tidak ada konsumen eksternal: package public di root module aplikasi adalah
-komitmen API yang tidak dibutuhkan siapa pun (sharing lintas produk butuh module terpisah apa pun
-yang terjadi); lalu package `memory` gabungan dipecah jadi `session`/`knowledge`/`postera` karena
-tiga slice itu tidak berbagi apa pun kecuali kata "memory" — package per konsep, bukan per tema.
-Pola kontrak+adapter-nya seragam: package fitur berisi port + tipe + sentinel + slice-nya (wallet:
-`ledger.go`; session/knowledge: `service.go`), adapter subpackage di sampingnya import package
-fitur dan HANYA di-wire di main — service tidak pernah import adapter (consumer-defined interface).
-Jangan setengah-setengah: kontrak internal dengan adapter public itu kontradiksi (API public yang
-bertipe internal tidak bisa dipakai siapa pun). Aturan penempatan package: package tinggal di
-samping hal yang MENDEFINISIKAN TUJUANNYA — adapter zep di samping kontrak session/knowledge yang
-dia implement; adapter postgres di samping kontrak wallet; handler linking gworkspace di bawah
-`internal/link` karena tujuannya fitur linking app ini.
+Lihat WALLET.md, LINKING.md, LIMITATIONS.md untuk keputusan desain per fitur, dan
+README.md untuk arsitektur menyeluruh.
 
-## Domain
+**Catatan idiom penempatan package.** Semua package app tinggal di `internal/` —
+kriterianya LIBRARY vs FIRST-PARTY, bukan rapi-tidaknya kontrak. Memory dulu package
+public di root (pola `image` + `image/png`) tapi diinternalkan karena tidak ada konsumen
+eksternal: package public di root module aplikasi adalah komitmen API yang tidak
+dibutuhkan siapa pun (sharing lintas produk butuh module terpisah apa pun yang terjadi).
+Lalu package `memory` gabungan dipecah jadi `session`/`knowledge`/`postera` karena tiga
+slice itu tidak berbagi apa pun kecuali kata "memory" — **package per konsep, bukan per
+tema.** Pola kontrak+adapter-nya seragam: package fitur berisi port + tipe + sentinel +
+slice-nya (wallet: `ledger.go`; session/knowledge: `service.go`), adapter subpackage di
+sampingnya import package fitur dan HANYA di-wire di main — service TIDAK PERNAH import
+adapter. Jangan setengah-setengah: kontrak internal dengan adapter public itu
+kontradiksi (API public yang bertipe internal tidak bisa dipakai siapa pun).
 
-**agent** — group chat in-process. Semua agent menjalankan runner-nya sendiri (`runner.Runner` dari ADK) di atas SATU Zep thread bersama (keyed by `session-id`), jadi human + semua agent baca/tulis satu percakapan.
+---
 
-Instruksi disusun empat lapis. Lapis pertama (base) di-`AdditionalInstruction`-kan ke tiap agent; tiga sisanya di-resolve dari session state via ADK state delta lewat placeholder `{key}` yang dirakit `agent.Instruction()`. Urutan di template: base → kind → run → session.
-- `internal/agent/instruction.txt` (base) — dasar bersama SEMUA agent (identitas grup chat, relationship model). Di-embed di `instruction.go`, dirakit `agent.Instruction()` (base + placeholder tiga delta key), dioper sebagai `AdditionalInstruction` ke `ava.New`, `zee.New`, `rafal.New`, dan `yori.New`. Isinya HANYA yang valid untuk kedua jenis agent — behavior spesifik pindah ke lapis kind.
-- `KindSpecificInstructionDeltaKey` (`kind_specific_instruction`) — lapis per-JENIS-agent, di-inject via `runner.WithStateDelta` tiap `runner.Run` (bukan dari session service). Ava: `internal/agent/ava/instruction.txt` (orkestrasi — delegasi cukup tag `@nama` manual tanpa mengulang perintah human; balasan final KOSONG kalau specialist sudah menjawab jelas). Specialist: `internal/agent/specialist/instruction.txt` (baca pesan terakhir saat dipanggil dengan tag saja, bertindak, tanpa parroting). Karena `ava` package tidak bisa `//go:embed` file di luar direktorinya, `specialist.KindInstruction` di-export dan dioper ke `ava.NewSubAgent` di main (subagent menjalankan specialist, jadi menyemai kind SPECIALIST). Kind harus di-set di SETIAP run path — placeholder-nya non-optional.
-- `SessionInstructionDeltaKey` (`sess_instruction`) — ditulis oleh `adkzep.SessionService` per-session (time awareness, message format; termasuk aturan "jangan echo prefix `[waktu nama]`" — pengetatannya milik adk/zep, bukan di-duplikasi di sini).
-- `RunInstructionDeltaKey` (`run_instruction`) — framing per-run, di-inject via `runner.WithStateDelta` tiap `runner.Run`.
+# BAGIAN 3 — DOMAIN
 
-Empat pintu masuk ke thread:
+## agent
 
-- `AvaHandler.HandleHuman` — human ke Ava. Speaker `human`. Tanpa framing per-run (Ava punya behavior group-chat-nya sendiri di module-nya).
-- `AvaHandler.HandleSelfAwaken` — Ava dibangunkan postera note-nya sendiri (Cloud Tasks callback, body = raw text). Speaker `ava`, framing `specialist-ran-by-postera-instruction.txt`.
-- `SpecialistHandler.HandleHuman` — human ke specialist langsung (mis. `POST /zee`, `POST /rafal`, `POST /yori`). Speaker `human`, framing `specialist-ran-by-human-instruction.txt`.
-- `avaSubAgent.Run` — Ava delegasi ke specialist di dalam run-nya sendiri. Speaker `ava`, framing `specialist-ran-by-ava-instruction.txt`.
+Group chat in-process. Semua agent menjalankan runner-nya sendiri (`runner.Runner` dari
+ADK) di atas SATU Zep thread bersama (`chat-{userID}`), jadi human + semua agent
+baca/tulis satu percakapan.
 
-Ava pemilik self-recall (postera tools), specialist tidak. `ForAva` mengadaptasi specialist menjadi `ava.SubAgent` — adapter hidup di `ava_subagent.go` karena implementasinya milik sisi konsumen (Ava). Route eksplisit per agent — bukan `/{agent}` dispatch.
+### Empat lapis instruksi
 
-Satu run orkestrasi bisa panjang (Ava + beberapa specialist, tiap giliran satu panggilan model), jadi timeout-nya di-set eksplisit di `main.go` dan saling terkait: `http.Server.WriteTimeout` 310s memberi ruang satu run penuh (`ReadHeaderTimeout` 10s / `ReadTimeout` 30s / `IdleTimeout` 120s), sementara satu panggilan model dibatasi 90s (`genai.HTTPOptions.Timeout`) supaya provider yang menggantung tidak menyandera seluruh run. Client yang menunggu lebih lama dari itu akan lihat koneksi diputus — bukan bug FE.
+Lapis BASE adalah `agent.Instruction` — di-embed di package `agent` yang MEMANG SUDAH
+mendeklarasikan tiga delta key dan MEMANG SUDAH di-import `ava` maupun `specialist`,
+sementara `agent` sendiri tidak meng-import keduanya. Jadi tidak ada package tambahan
+dan tidak ada import cycle.
 
-Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`. Consumer wajib drain seluruh iterator. Hanya ambil teks dari `event.IsFinalResponse() && event.Content != nil` — ini selalu event terakhir untuk arsitektur single-agent/tool-based kita. Kalau loop selesai tanpa final response, balas error `502` (atau return error untuk `avaSubAgent.Run`). Error di iterator adalah error infrastruktur — tool call error dikembalikan sebagai FunctionResponse semantic, bukan Go error.
+Lapis KIND dirakit saat BUILD (`fmt.Sprintf` di `ava.Instruction()` /
+`specialist.Instruction()` mengisi `%s` di template base), lalu dioper sebagai
+`AdditionalInstruction` ke `ava.New`, `zee.New`, `rafal.New`, `yori.New`. Tiga lapis
+lain di-resolve per-run dari session state via placeholder `{key}`.
 
-**memory** — tiga package terpisah, satu per anggota keluarga memory, masing-masing vertical slice lengkap dengan handler-nya sendiri (port provider-agnostic di-back oleh Zep di subpackage `zep` masing-masing):
+Urutan render di `internal/agent/instruction.txt`:
 
-- *episodic* — `internal/session`. Ada ownership check manual di `Service` (`Get` thread → bandingkan `UserID` → baru `Delete`) karena `sessionID` dari URL bisa milik siapa saja.
-- *semantic* — `internal/knowledge`. Tidak butuh ownership check karena operasi sudah di-scope ke `userID` dari JWT (`GetByUserID`, `User.Delete`).
-- *prospective* — `internal/postera`, langsung pakai `*postera.Postarius` (package eksternal). Tidak ada service lokal: Postarius sendiri orchestrator yang scope-aware via context, jadi auth gate cukup di handler.
+```
+[WHERE_AM_I] + [RELATIONSHIP_MODEL_*]     BASE     · dasar bersama semua agent
+{channel_instruction}                     CHANNEL  · teks vs suara (per run)
+%s                                        KIND     · diisi saat build
+{run_instruction}                         RUN      · siapa yang memicu giliran (per run)
+{sess_instruction}                        SESSION  · ditulis adkzep (per session)
+```
+
+- **BASE** — identitas grup chat + relationship model. Isinya HANYA yang valid untuk
+  KEDUA jenis agent; behavior spesifik pindah ke lapis kind.
+- **KIND** — `ava/instruction.txt` (orkestrasi: delegasi = memanggil TOOL, isi pesan
+  persis `"@nama"`, tidak mengulang perintah human, tag bukan balasan final) atau
+  `specialist/instruction.txt` (dipanggil dengan tag saja = baca pesan terakhir,
+  bertindak, tanpa parroting).
+- **CHANNEL** (`channel_instruction`) — teks vs suara. Aturan "diam itu benar" ada di
+  channel teks; aturan "jangan pernah diam, human sedang menelepon" + format TTS + tag
+  `#emosi#` + `#end#` ada di channel suara. Specialist tidak punya lapis channel →
+  di-set `""`.
+- **RUN** (`run_instruction`) — framing per-run: siapa yang memicu giliran ini.
+- **SESSION** (`sess_instruction`) — ditulis `adkzep.SessionService` per-session (time
+  awareness, message format, aturan "jangan echo prefix `[waktu nama]`").
+  Pengetatannya milik agentkit/zep, TIDAK diduplikasi di sini.
+
+**Placeholder bersifat non-optional: SETIAP run path WAJIB men-set channel DAN run**,
+walau nilainya `""`. Key yang tidak di-set meninggalkan literal `{run_instruction}` di
+prompt.
+
+### Empat pintu masuk ke thread
+
+| Pintu | Speaker | Channel | Run instruction |
+|---|---|---|---|
+| `ava.Handler.HandleHuman` (`POST /ava`) | `human` | text | `""` |
+| `ava.Handler.HandleVoice` (`POST /ava/voice`) | `human` | voice | `""` |
+| `ava.Handler.HandleSelfAwaken` (`POST /ava/awaken`) | `postera` (system role) | text | `ran-by-postera-instruction.txt` |
+| `specialist.Handler.HandleHuman` (`POST /zee`,`/rafal`,`/yori`) | `human` | `""` | `ran-by-human-instruction.txt` |
+| `subAgent.Run` (Ava delegasi) | `ava` | `""` | `ran-by-ava-instruction.txt` |
+
+Ava pemilik self-recall (postera tools), specialist tidak. `ava.NewSubAgent`
+mengadaptasi specialist menjadi `ava.SubAgent`. Route eksplisit per agent — BUKAN
+`/{agent}` dispatch.
+
+### Kontrak event stream
+
+Iterator `runner.Run` menghasilkan `iter.Seq2[*session.Event, error]`.
+
+1. Consumer WAJIB drain seluruh iterator.
+2. Hanya ambil teks dari `event.IsFinalResponse()`; `event.Content` boleh nil.
+3. **Balasan final KOSONG adalah SUKSES**, bukan kegagalan — agent boleh bertindak
+   tanpa ada yang perlu dikatakan, dan turn tanpa teks tidak dipersist ke thread.
+4. Loop selesai tanpa final response → `502` (atau return error untuk `subAgent.Run`).
+5. Error di iterator = error INFRASTRUKTUR. Tool call yang gagal kembali sebagai
+   FunctionResponse semantic, BUKAN Go error.
+6. `usage.Add(event)` dipanggil untuk SETIAP event sebelum branch final response, dan
+   `Charge` dipanggil lewat `defer` — token yang terpakai sebelum error tetap dibayar.
+
+### Timeout
+
+Satu run orkestrasi bisa panjang (Ava + beberapa specialist, tiap giliran satu panggilan
+model), jadi timeout di-set eksplisit di `main.go` dan saling terkait:
+`http.Server.WriteTimeout` 310s memberi ruang satu run penuh (`ReadHeaderTimeout` 10s /
+`ReadTimeout` 30s / `IdleTimeout` 120s), sementara satu panggilan model dibatasi 90s
+(`genai.HTTPOptions.Timeout`) supaya provider yang menggantung tidak menyandera seluruh
+run. Client yang menunggu lebih lama dari itu akan lihat koneksi diputus — BUKAN bug FE.
+
+Model roster: `gemini-3.5-flash`, di-set eksplisit di `main.go`, bukan env.
+
+## memory
+
+Tiga package terpisah, satu per anggota keluarga memory, masing-masing vertical slice
+lengkap dengan handler sendiri (port provider-agnostic di-back oleh Zep di subpackage
+`zep` masing-masing):
+
+- **episodik** — `internal/session`. ADA ownership check manual di `Service` karena
+  `sessionID` secara struktur bisa milik siapa saja.
+- **semantik** — `internal/knowledge`. TIDAK butuh ownership check karena operasi sudah
+  di-scope ke `userID` dari JWT (`GetByUserID`, `User.Delete`) — tidak ada ID dari
+  request yang bisa dikelabui.
+- **prospektif** — `internal/postera`, langsung pakai `*postera.Postarius`. Tidak ada
+  service lokal: Postarius sendiri orchestrator yang scope-aware via context, jadi auth
+  gate cukup di handler.
 
 Endpoints (semua DELETE balas `204 No Content`):
 
-- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread = `chat-{userID}` diturunkan server-side dari JWT (`"chat-" + userID` inline di tiap pemakaian), jadi TANPA param sessionID di path.
-- `/knowledge` — GET/DELETE knowledge graph. GET membalas graf UTUH (`{nodes, edges}`) — tidak ada param `limit`/`cursor`, adapter Zep yang menguras halamannya. **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus seluruh data user termasuk semua threads/sessions — disengaja.**
-- `/postera` — GET upcoming, `/postera/{posterum-id}` DELETE cancel.
+- `/sessions/messages` — GET/DELETE pesan thread user. Single-session per user: thread =
+  `chat-{userID}` diturunkan server-side dari JWT (`"chat-" + userID` inline di tiap
+  pemakaian), jadi TANPA param sessionID di path.
+- `/knowledge` — GET/DELETE knowledge graph. GET membalas graf UTUH (`{nodes, edges}`) —
+  tidak ada param `limit`/`cursor`, adapter Zep yang menguras halamannya.
+  **DELETE `/knowledge` memanggil `User.Delete` di Zep yang menghapus SELURUH data user
+  termasuk semua threads/sessions — DISENGAJA.**
+- `/postera` — GET upcoming, `/postera/{posterumID}` DELETE cancel.
 
-**identity** — `FirebaseAuthenticator` middleware verifikasi Firebase ID token via Admin SDK (`auth.Client.VerifyIDToken`), ambil UID, simpan ke context via `user.ContextWithID`. `PaymentGuard` cek Redis set `users:blocked:payment`. Identity adalah concern AVAGENC-LEVEL (platform), bukan chat-level: satu akun Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
+## identity
 
-**wallet** — ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`), dipotong per agent run sesuai token usage (WALLET.md = sumber keputusan desain + kontrak front end). Post-paid: `internal/wallet/biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop (`usage.Add(event)` sebelum branch final response) lalu `Charge` sekali per run via defer — satu transaksi `agent_run` (debit user + credit revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log; biller sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`). Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main. Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/zee`, `/rafal`, `/yori`, `/ava/awaken`; debit boleh membuat saldo sedikit minus. Charge gagal = log, bukan 5xx; pakai `context.WithoutCancel`. Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret `WALLET_DB_URL`) sebelum deploy; boot hanya validasi. Top-up via Midtrans Snap di `internal/wallet/midtrans` (lihat Struktur + WALLET.md "Top-up Midtrans"); dev pakai Midtrans sandbox via `MIDTRANS_BASE_URL` (Saat ini dinonaktifkan/di-comment out di `main.go`).
+Tiga jenis pemanggil, tiga mekanisme:
 
-**linking** — surface user-facing untuk connect akun eksternal, sengaja lepas dari agent (agent hanya KONSUMEN token via client yang sama — rafal via `*gworkspace.Client`, yori via `*spotify.Client`; linking yang mengelola grant-nya). Seperti identity, linking adalah concern AVAGENC-LEVEL, bukan chat-level: user connect SEKALI dan grant-nya berlaku untuk semua produk Avagenc (kalau nanti ada produk lain, tidak perlu linking ulang). Karena itu data linking (Firestore di project `avagenc`, database via `FIRESTORE_DATABASE_ID`) di-scope dan dinamai level platform — JANGAN dinamai per-product (bukan `avagenc-chat`). Dua integrasi dengan flow identik (lihat LINKING.md untuk kontrak front end), contoh Google Workspace:
+- `FirebaseAuthenticator` — SPA sebagai user yang sign-in. Verifikasi Firebase ID token
+  via Admin SDK (`auth.Client.VerifyIDToken`), simpan UID ke context via
+  `user.ContextWithID`.
+- `APIKeyAuthenticator(POSTERA_API_KEY)` — Cloud Tasks di `/ava/awaken`.
+- `APIKeyAuthenticator(THIRD_PARTY_API_KEY)` — klien voice pihak ketiga di `/ava/voice`.
 
-- `GET /gworkspace/auth-url` — mint consent URL Google. State = `integration.exp.HMAC(integration|userID|exp)` (SATU secret bersama `OAUTH_STATE_SECRET` untuk semua integrasi — nama integrasi di mac men-domain-separate-nya; TTL 15 menit, helper di root `internal/link`) — stateless, mengikat flow ke user peminta dan integrasinya.
-- `POST /gworkspace/connection` — body `{code, state}` dari callback page front end. Verifikasi state → `Connect` (tukar code, simpan refresh token di Firestore). `ErrMissingScopes`/code ditolak Google → 400; sukses → 204.
-- `DELETE /gworkspace/connection` — `Disconnect` (hapus refresh token). Belum connect (`ErrNotConnected`) → 404; sukses → 204. Grant di Google Account user TIDAK di-revoke.
+Identity adalah concern **AVAGENC-LEVEL** (platform), bukan chat-level: satu akun
+Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
+
+## wallet
+
+Ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`),
+dipotong per agent run sesuai token usage. **WALLET.md = sumber keputusan desain +
+kontrak front end.**
+
+Post-paid: `biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop lalu
+`Charge` sekali per run via `defer` — satu transaksi `agent_run` (debit user + credit
+revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/
+breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log. Biller
+sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak
+bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`).
+
+Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main, bukan env:
+snapshot-nya tercatat di tiap transaksi, jadi ubah tarif = keputusan deploy.
+
+Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/ava/voice`, `/ava/awaken`,
+`/zee`, `/rafal`, `/yori`; debit boleh membuat saldo sedikit minus — billing write TIDAK
+BOLEH hilang karena dana habis. Charge gagal = log, BUKAN 5xx; pakai
+`context.WithoutCancel` supaya debit tertulis walau client disconnect.
+
+Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret
+`WALLET_DB_URL`) SEBELUM deploy; boot hanya VALIDASI tabel ada, tidak pernah DDL.
+
+Top-up via Midtrans Snap ada lengkap di `internal/wallet/midtrans`: webhook
+diautentikasi signature SHA-512 LALU dikonfirmasi ke status API Core Midtrans sebelum
+membukukan — amount/status/currency diambil dari status API, BUKAN dari body, supaya
+server key yang bocor tidak bisa memalsukan pembukuan. **Saat ini di-comment out di
+`main.go` menunggu keputusan produk**; kode + test-nya dipertahankan supaya
+mengaktifkannya kembali = uncomment, bukan tulis ulang.
+
+## linking
+
+Surface user-facing untuk connect akun eksternal, SENGAJA lepas dari agent (agent hanya
+KONSUMEN token via client yang sama — rafal via `*gworkspace.Client`, yori via
+`*spotify.Client`, zee via `*tuya.Client`; linking yang mengelola grant-nya). Seperti
+identity, linking adalah concern **AVAGENC-LEVEL**: user connect SEKALI dan grant-nya
+berlaku untuk semua produk Avagenc. Karena itu data linking (Firestore di project
+`avagenc`, database via `FIRESTORE_DATABASE_ID`) di-scope dan dinamai level platform —
+JANGAN dinamai per-product (bukan `avagenc-chat`).
+
+Dua integrasi OAuth dengan flow identik (lihat LINKING.md untuk kontrak front end),
+contoh Google Workspace:
+
+- `GET /gworkspace/auth-url` — mint consent URL. State =
+  `integration.exp.HMAC(integration|userID|exp)` — SATU secret bersama
+  `OAUTH_STATE_SECRET` untuk semua integrasi (nama integrasi di mac
+  men-domain-separate), TTL 15 menit, helper di root `internal/link`. Stateless,
+  mengikat flow ke user peminta dan integrasinya.
+- `GET /gworkspace/connection` — `{"connected": bool}`. Kebenaran STORAGE saja, tidak
+  mem-probe provider.
+- `POST /gworkspace/connection` — body `{code, state}` dari callback page FE. Verifikasi
+  state → `Connect` (tukar code, simpan refresh token di Firestore).
+  `ErrMissingScopes` / code ditolak Google → 400; sukses → 204.
+- `DELETE /gworkspace/connection` — `Disconnect` (hapus refresh token). Belum connect
+  (`ErrNotConnected`) → 404; sukses → 204. Grant di akun Google user TIDAK di-revoke
+  (batasan SDK, tercatat di LINKING.md).
 
 Spotify sama persis dengan prefix `/spotify` (token di Firestore `spotify_tokens`).
+Tuya HANYA `GET /tuya/connection` (status) karena akun Tuya di-link manual oleh tim.
 
-Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi `WEB_APP_URL/{integration}/link/callback` (bukan ke API) — integrasi diketahui dari route, `state` tetap opaque di FE; backend menurunkan redirect URI tiap integrasi dari `WEB_APP_URL`. Semua endpoint linking tetap di belakang auth Firebase.
+Tiap provider me-redirect browser ke halaman callback FRONT END per-integrasi
+`WEB_APP_URL/{integration}/link/callback` (BUKAN ke API) — integrasi diketahui dari
+route, `state` tetap opaque di FE; backend menurunkan redirect URI tiap integrasi dari
+`WEB_APP_URL`. Semua endpoint linking tetap di belakang auth Firebase.
 
-## Auth flow
+---
 
-Route user di bawah group middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di context via `apiuser.IDFromContext`. Pengecualian: `/ava/awaken` (callback Cloud Tasks) di luar group Firebase — TAPI TETAP diautentikasi: `identity.CloudTasksAuthenticator` memverifikasi OIDC token Google yang dipasang Cloud Tasks (audience = URL target `/ava/awaken`, email = `GCP_RUNTIME_SA_EMAIL`) SEBELUM `apiuser.HTTPWithID` membaca header `user-id`. Tanpa verifikasi ini header `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. Session-nya diturunkan dari user (`chat-{userID}`), bukan dari header.
+# BAGIAN 4 — AUTH FLOW
 
-Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist, awaken) memakai thread yang sama `chat-{userID}` (`"chat-" + userID` inline di tiap pemakaian). Handler agent tidak menerima `session-id` dari header/context. Postera TIDAK di-wire dengan `WithSessionFromContext`: karena single-session-per-user, `Session` posterum selalu sama dengan `Human`-nya, jadi scoping tambahan itu tidak pernah menambah pembatasan apa pun di atas scoping `Human` yang sudah ada — redundant, bukan defense-in-depth.
+Route user di bawah middleware `firebaseAuthenticator.Authenticate`. User ID tersedia di
+context via `apiuser.IDFromContext`.
 
-## Environment variables
+Dua pengecualian, keduanya TETAP diautentikasi dengan API key SEBELUM identitas dibaca
+dari header:
+
+```go
+// POST /ava/awaken — callback Cloud Tasks
+posteraAuthenticator.Authenticate(          // 1. buktikan pemanggil = queue kita
+    apiuser.HTTPWithID(                     // 2. BARU header `user-id` dipercaya
+        walletGuard.RequireBalance(...)))
+```
+
+**Urutan ini ADALAH properti keamanannya.** Tanpa verifikasi API key lebih dulu, header
+`user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. `/ava/voice`
+memakai pola yang sama dengan `THIRD_PARTY_API_KEY`.
+
+Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist,
+awaken, voice) memakai thread yang sama `chat-{userID}`. Handler agent tidak menerima
+`session-id` dari header/context.
+
+Postera TIDAK di-wire dengan `WithSessionFromContext`: karena single-session-per-user,
+`Session` posterum selalu sama dengan `Human`-nya, jadi scoping tambahan itu tidak
+pernah menambah pembatasan apa pun di atas scoping `Human` yang sudah ada — redundant,
+BUKAN defense-in-depth. Filter redundan yang TERLIHAT seperti kontrol keamanan lebih
+buruk daripada tidak ada, karena pembaca berikutnya akan mengira ada batas di situ.
+
+CORS: SATU origin (`CORS_ALLOWED_ORIGIN`), dicocokkan persis, `Vary: Origin` selalu
+di-set. Bukan daftar, bukan regex, bukan wildcard. Satu deployment backend = satu origin
+web.
+
+---
+
+# BAGIAN 5 — ENVIRONMENT VARIABLES
+
+Semua WAJIB (fatal saat boot kalau kosong) kecuali yang ditandai.
 
 | Var | Keterangan |
 |-----|-----------|
+| `APP_ENV` | `production` atau `development` |
+| `PORT` | **opsional**, default `8080` |
+| `HOST_URL` | Base URL publik service ini; Cloud Tasks callback ke `HOST_URL/ava/awaken` |
+| `CORS_ALLOWED_ORIGIN` | SATU origin (bukan daftar) yang boleh memanggil API dari browser, dicocokkan persis; harus origin tempat SPA disajikan |
+| `WEB_APP_URL` | Origin web app SPA; backend menurunkan redirect URI tiap integrasi (`WEB_APP_URL/{gworkspace,spotify}/link/callback`) darinya — tiap URL wajib terdaftar verbatim di provider-nya |
 | `FIREBASE_PROJECT_ID` | Project ID Firebase untuk verifikasi ID token |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path service account credentials (Firebase Admin SDK, Cloud Tasks) |
-| `ZEP_API_KEY` | API key Zep |
-| `GEMINI_API_KEY` | API key model Gemini (LLM roster) — model roster `gemini-3.5-flash`, di-set eksplisit di `main.go` |
-| `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) — refresh token user di-resolve lewat client ini |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | OAuth app Spotify (yori + linking) — refresh token user di-resolve lewat client ini |
-| `WEB_APP_URL` | Origin web app SPA; backend menurunkan redirect URI tiap integrasi (`WEB_APP_URL/{gworkspace,spotify}/link/callback`) darinya — tiap URL wajib terdaftar verbatim di provider-nya (Google Cloud Console, Spotify Developer Dashboard) |
-| `CORS_ALLOWED_ORIGIN` | SATU origin (bukan daftar) yang boleh memanggil API dari browser, dicocokkan persis; harus origin tempat SPA disajikan. Satu deployment backend = satu origin web |
-| `OAUTH_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state — satu untuk semua integrasi linking (domain separation via nama integrasi di mac) |
-| `FIRESTORE_DATABASE_ID` | Database ID Firestore — store account Tuya (`tuya_accounts`), token gworkspace (`gworkspace_tokens`) & token spotify (`spotify_tokens`) |
-| `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
-| `POSTERA_API_KEY` | Shared secret postera — dipasang enqueuer sebagai header `api-key` saat menjadwalkan task, lalu diverifikasi di `POST /ava/awaken` (`identity.NewAPIKeyAuthenticator`) |
-| `THIRD_PARTY_API_KEY` | API key klien pihak ketiga — autentikasi `POST /ava/voice` |
-| `WALLET_DB_URL` | PostgreSQL connection string untuk wallet — database KHUSUS wallet (tabel tanpa prefix), terpisah dari postera |
-| `MIDTRANS_SERVER_KEY` | (Opsional - saat ini di-comment out) Server key Midtrans — auth Snap API (create transaction) + verifikasi signature webhook top-up |
-| `MIDTRANS_BASE_URL` | (Opsional - saat ini di-comment out) Host Midtrans: `https://app.sandbox.midtrans.com` (dev) / `https://app.midtrans.com` (production) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | **opsional di GCP** — path service account credentials untuk run lokal; di Cloud Run pakai ADC |
 | `GCP_PROJECT_ID` | GCP project ID (Cloud Tasks, Firestore) |
+| `GCP_RUNTIME_SA_EMAIL` | Service account yang dipakai Cloud Tasks saat memanggil `/ava/awaken` |
 | `CLOUD_TASKS_LOCATION_ID` | Cloud Tasks location |
 | `CLOUD_TASKS_QUEUE_ID` | Cloud Tasks queue ID |
-| `APP_ENV` | `production` atau `development` |
-| `PORT` | Port server (default `8080`) |
+| `FIRESTORE_DATABASE_ID` | Database ID Firestore — `tuya_accounts`, `gworkspace_tokens`, `spotify_tokens` |
+| `ZEP_API_KEY` | API key Zep (thread + knowledge graph) |
+| `GEMINI_API_KEY` | API key model Gemini — model ID di-pin di `main.go`, bukan env |
+| `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` / `TUYA_BASE_URL` | Kredensial Tuya cloud (zee) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client Google Workspace (rafal + linking) |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | OAuth app Spotify (yori + linking) |
+| `OAUTH_STATE_SECRET` | Secret HMAC penanda-tangan OAuth state — satu untuk semua integrasi (domain separation via nama integrasi di mac) |
+| `POSTERA_DB_URL` | PostgreSQL connection string untuk postera |
+| `POSTERA_API_KEY` | Shared secret postera — dipasang queue sebagai header `api-key`, diverifikasi di `POST /ava/awaken` |
+| `THIRD_PARTY_API_KEY` | API key klien pihak ketiga — autentikasi `POST /ava/voice` |
+| `WALLET_DB_URL` | PostgreSQL connection string untuk wallet — database KHUSUS wallet (tabel tanpa prefix), TERPISAH dari postera |
+| `MIDTRANS_SERVER_KEY` / `MIDTRANS_BASE_URL` | **parked** — hanya perlu kalau top-up diaktifkan lagi |
+| `WALLET_TEST_DB_URL` | **test only** — database sekali pakai untuk integration test wallet |
 
-## Conventions
+---
 
-> **Prinsip utama: clear over clever, explicit over implicit.** Pattern lama package `agent`
-> dibongkar justru karena melanggar ini (factory `Build()` opaque, hidden wiring, map dispatch,
-> nama generik). JANGAN ulangi pola itu. Aturan di bawah mengikat.
+# BAGIAN 6 — CHECKLIST SEBELUM MENYATAKAN SELESAI
 
-### Komposisi & wiring
-
-- **Wiring EKSPLISIT di consumer (`cmd/.../main.go`), seragam untuk semua fitur.** Dependency dibuat satu per satu di main dan dioper ke konstruktor.
-- **Package cuma menyediakan konstruktor kecil yang MENERIMA dependency sudah-jadi** (`NewAvaHandler`, `NewSpecialistHandler`, `ForAva`). DILARANG factory serba-bisa (`Build()`, `Setup()`, `Wire()`) yang bikin dependency-nya sendiri di dalam. Gejala salah: di main cuma `x := pkg.Build(...)` dan seluruh graf dependency lahir tersembunyi di dalam package.
-- **Tidak ada hidden DI / hidden wiring.** Semua dependency lewat parameter konstruktor, kelihatan di main.
-- **Konstruktor terima interface, bukan tipe konkret**, kalau memungkinkan, supaya package lepas dari adapter.
-- **Tidak ada helper/wrapper untuk hal yang sudah simple.** `runner.Run` dipanggil langsung di handler — tidak perlu `respondRun`, `collect`, atau wrapper apapun. Thin = tidak ada lapisan yang tidak menambah nilai.
-
-### File & organisasi
-
-- **Vertical slice per konsep** — satu file = satu konsep lengkap. `ava_handler.go` hanya handler Ava. `ava_subagent.go` hanya adapter sub-agent. `specialist_handler.go` hanya handler specialist. Bukan satu file `ava.go` yang campur aduk.
-- **Adapter hidup di sisi konsumen, bukan sisi yang diadaptasi.** `ForAva` ada di `ava_subagent.go` karena `ava.SubAgent` adalah kontrak Ava — specialist tidak tahu soal Ava.
-- Tidak ada nama file stutter (`pkg/pkg.go`). Pisah file per konsep; package yang punya handler+service diorganisir vertical slice.
-- Doc comment package taruh di file fitur utama, bukan `doc.go` terpisah. Deklarasi lintas-fitur taruh di file spine (mis. `handler.go`, `instruction.go`).
-
-### Endpoint & handler
-
-- **Satu handler per hal konkret, di-route eksplisit** (`/ava`, `/zee`). DILARANG satu handler generik + `map`/`list` yang dispatch lewat path param (`/{agent}`). Nambah anggota = nambah baris wiring eksplisit di main.
-- **Nama jujur & spesifik.** Method = aksi sebenarnya (`HandleHuman`, `HandleSelfAwaken`), BUKAN `Chat()`/`Handle()` generik.
-- **Teks instruksi/prompt → `//go:embed` file `.txt` terpisah**, satu file per konsep/channel.
-
-### Lain-lain
-
-- **Deklarasi (var, const, type, dsb.) taruh tepat sebelum pertama kali digunakan**, bukan di atas file/fungsi karena terlihat "rapi". Pembaca harus bisa baca dari atas ke bawah tanpa harus scroll ke mana-mana untuk tahu sebuah identifier itu apa.
-- Handler thin: hanya HTTP glue (extract param, map error ke status code)
-- Service layer hanya kalau ada logika bisnis nyata (ownership check, multi-step orchestration)
-- Tidak ada mock testing — integration test untuk behavior, bukan unit test handler
-- `go.naturallyfunny.dev/api` menyediakan helper context (user, session, time) dan HTTP utilities
-- Sentinel error per fitur, bukan satu yang dipakai bersama. Adapter terjemahkan error backend ke sentinel; consumer cocokkan via `errors.Is`.
+1. `gofmt -l .` → tidak ada output.
+2. `go build ./... && go vet ./...` → bersih.
+3. `go test ./... -count=1` → lulus. Integration test wallet akan SKIP tanpa
+   `WALLET_TEST_DB_URL` — itu normal, tapi laporkan sebagai SKIP, jangan sebagai lulus.
+4. Graf import masih forest — tidak ada package fitur yang import package fitur lain di
+   luar yang sudah ada (`agent/*` → `agent`, `wallet`;
+   `link/*` → `link`; adapter → kontrak induknya). Cek:
+   `for p in $(go list ./...); do go list -f '{{.ImportPath}} {{join .Imports " "}}' $p | tr ' ' '\n' | grep -c avagenc/chat; done`
+   atau lebih terbaca, lihat tabel graf import di README.md dan bandingkan.
+5. Route baru: gate middleware-nya sudah benar DAN **urutannya** sudah benar?
+6. Kalau struktur/route/env berubah, file INI dan README.md ikut berubah di commit yang
+   sama. **CLAUDE.md yang drift dari kode adalah sinyal terburuk yang bisa diberikan
+   repo ini** — reviewer (manusia maupun AI) membacanya sebagai kebenaran, lalu menilai
+   kode berdasarkan peta yang salah.
+7. Commit message mengikuti gaya yang sudah ada: `feat(scope):`, `fix(scope):`,
+   `refactor(scope):`, `chore(deps):`, `docs:`, `ci:`. Ringkas, boleh bahasa Indonesia.

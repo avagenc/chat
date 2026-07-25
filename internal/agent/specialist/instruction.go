@@ -4,12 +4,12 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/avagenc/chat/internal/agent/instructionbase"
+	"github.com/avagenc/chat/internal/agent"
 )
 
 //go:embed instruction.txt
-var kindInstruction string
+var instruction string
 
 func Instruction() string {
-	return fmt.Sprintf(instructionbase.Template, kindInstruction)
+	return fmt.Sprintf(agent.Instruction, instruction)
 }
