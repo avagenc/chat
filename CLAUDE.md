@@ -240,8 +240,7 @@ internal/wallet/            fitur wallet FIRST-PARTY, satu vertical slice
                             runtime hanya VALIDASI tabel ada, tidak pernah DDL.
 ```
 
-Lihat WALLET.md, LINKING.md, LIMITATIONS.md untuk keputusan desain per fitur, dan
-README.md untuk arsitektur menyeluruh.
+Lihat README.md untuk arsitektur menyeluruh.
 
 **Catatan idiom penempatan package.** Semua package app tinggal di `internal/` —
 kriterianya LIBRARY vs FIRST-PARTY, bukan rapi-tidaknya kontrak. Memory dulu package
@@ -388,8 +387,7 @@ Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan na
 ## wallet
 
 Ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`),
-dipotong per agent run sesuai token usage. **WALLET.md = sumber keputusan desain +
-kontrak front end.**
+dipotong per agent run sesuai token usage.
 
 Post-paid: `biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop lalu
 `Charge` sekali per run via `defer` — satu transaksi `agent_run` (debit user + credit
@@ -426,8 +424,7 @@ berlaku untuk semua produk Avagenc. Karena itu data linking (Firestore di projec
 `avagenc`, database via `FIRESTORE_DATABASE_ID`) di-scope dan dinamai level platform —
 JANGAN dinamai per-product (bukan `avagenc-chat`).
 
-Dua integrasi OAuth dengan flow identik (lihat LINKING.md untuk kontrak front end),
-contoh Google Workspace:
+Dua integrasi OAuth dengan flow identik, contoh Google Workspace:
 
 - `GET /gworkspace/auth-url` — mint consent URL. State =
   `integration.exp.HMAC(integration|userID|exp)` — SATU secret bersama
@@ -441,7 +438,7 @@ contoh Google Workspace:
   `ErrMissingScopes` / code ditolak Google → 400; sukses → 204.
 - `DELETE /gworkspace/connection` — `Disconnect` (hapus refresh token). Belum connect
   (`ErrNotConnected`) → 404; sukses → 204. Grant di akun Google user TIDAK di-revoke
-  (batasan SDK, tercatat di LINKING.md).
+  (batasan SDK).
 
 Spotify sama persis dengan prefix `/spotify` (token di Firestore `spotify_tokens`).
 Tuya HANYA `GET /tuya/connection` (status) karena akun Tuya di-link manual oleh tim.
@@ -471,6 +468,18 @@ posteraAuthenticator.Authenticate(          // 1. buktikan pemanggil = queue kit
 **Urutan ini ADALAH properti keamanannya.** Tanpa verifikasi API key lebih dulu, header
 `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. `/ava/voice`
 memakai pola yang sama dengan `THIRD_PARTY_API_KEY`.
+
+**JANGAN tambahkan kembali OIDC Cloud Tasks di sini.** Dulu queue di-wire dengan
+`posteracloudtasks.WithServiceAccountEmail(...)` sehingga Cloud Tasks memasang token OIDC
+Google — tapi tidak ada satu pun kode yang memverifikasinya, dan Cloud Run jalan dengan
+`--allow-unauthenticated`, jadi platform juga tidak memverifikasinya. Konfigurasi itu
+TERLIHAT seperti kontrol keamanan padahal tidak menegakkan apa pun, jadi sudah dihapus
+(beserta env `GCP_RUNTIME_SA_EMAIL` di sisi aplikasi; GitHub variable-nya tetap ada karena
+dipakai `--service-account` di deploy). Kalau suatu saat ingin identitas yang
+diverifikasi platform, sadari batasannya: **IAM Cloud Run itu per-SERVICE, bukan
+per-ROUTE** — service ini juga melayani SPA, jadi mematikan `--allow-unauthenticated`
+akan mengunci semua route user. Artinya butuh service terpisah untuk callback, dan itu
+keputusan arsitektur, bukan sekadar menambah satu opsi.
 
 Single-session per user: semua entry point (human → Ava/specialist, Ava → specialist,
 awaken, voice) memakai thread yang sama `chat-{userID}`. Handler agent tidak menerima
@@ -502,7 +511,6 @@ Semua WAJIB (fatal saat boot kalau kosong) kecuali yang ditandai.
 | `FIREBASE_PROJECT_ID` | Project ID Firebase untuk verifikasi ID token |
 | `GOOGLE_APPLICATION_CREDENTIALS` | **opsional di GCP** — path service account credentials untuk run lokal; di Cloud Run pakai ADC |
 | `GCP_PROJECT_ID` | GCP project ID (Cloud Tasks, Firestore) |
-| `GCP_RUNTIME_SA_EMAIL` | Service account yang dipakai Cloud Tasks saat memanggil `/ava/awaken` |
 | `CLOUD_TASKS_LOCATION_ID` | Cloud Tasks location |
 | `CLOUD_TASKS_QUEUE_ID` | Cloud Tasks queue ID |
 | `FIRESTORE_DATABASE_ID` | Database ID Firestore — `tuya_accounts`, `gworkspace_tokens`, `spotify_tokens` |
