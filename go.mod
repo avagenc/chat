@@ -12,7 +12,7 @@ require (
 	github.com/zmb3/spotify/v2 v2.4.3
 	go.avagenc.com/ava v0.7.1
 	go.avagenc.com/yori v0.3.0
-	go.avagenc.com/zee v0.6.1
+	go.avagenc.com/zee v0.6.2
 	go.naturallyfunny.dev/agentkit v0.2.0
 	go.naturallyfunny.dev/api v1.15.1
 	go.naturallyfunny.dev/postera v0.22.0
@@ -25,7 +25,6 @@ require (
 require (
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	go.naturallyfunny.dev/adk v1.35.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
 
