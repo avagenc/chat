@@ -380,6 +380,7 @@ Tiga jenis pemanggil, tiga mekanisme:
   `user.ContextWithID`.
 - `APIKeyAuthenticator(POSTERA_API_KEY)` — Cloud Tasks di `/ava/awaken`.
 - `APIKeyAuthenticator(THIRD_PARTY_API_KEY)` — klien voice pihak ketiga di `/ava/voice`.
+  **SEMENTARA** — lihat catatan di BAGIAN 4.
 
 Identity adalah concern **AVAGENC-LEVEL** (platform), bukan chat-level: satu akun
 Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan nanti.
@@ -468,6 +469,24 @@ posteraAuthenticator.Authenticate(          // 1. buktikan pemanggil = queue kit
 **Urutan ini ADALAH properti keamanannya.** Tanpa verifikasi API key lebih dulu, header
 `user-id` mentah bisa dipakai siapa saja untuk menguras wallet user lain. `/ava/voice`
 memakai pola yang sama dengan `THIRD_PARTY_API_KEY`.
+
+**`/ava/voice` API-key-only itu SEMENTARA, dan bedanya dengan `/ava/awaken` harus
+dipahami sebelum menyentuh route ini.** Cloud Tasks adalah infrastruktur KITA — queue-nya
+dikonfigurasi aplikasi ini, jadi membuktikan "pemanggilnya queue kita" setara dengan
+membuktikan request-nya sah. Perangkat voice BUKAN infrastruktur kita: shared secret di
+sana mengautentikasi KLIEN, bukan USER, jadi siapa pun yang mengekstrak key dari perangkat
+bisa mengirim `user-id` siapa saja. Ini afordans pengembangan perangkat (sign-in di
+hardware tanpa browser, secure storage, refresh token per jam) yang sengaja ditunda, bukan
+desain final.
+
+Arah perubahannya sudah ditentukan, jadi JANGAN merancang ulang: `/ava/voice` pindah ke
+bawah `firebaseAuthenticator.Authenticate`, dan **`apiuser.HTTPWithID` beserta header
+`user-id` DIHAPUS dari route itu** — identitas datang dari token terverifikasi, karena itu
+satu-satunya cara pemanggil berhenti bisa memilih dirinya sendiri. API key boleh tetap ada
+di DEPAN sebagai atestasi klien (key dulu, baru bearer), tapi berhenti jadi penentu
+identitas. Sampai itu terjadi: jangan menulis kode, komentar, atau dokumen yang
+menyiratkan susunan sekarang adalah desain final; kalau ada yang bertanya, jawabannya ada
+di README §Trust boundaries.
 
 **JANGAN tambahkan kembali OIDC Cloud Tasks di sini.** Dulu queue di-wire dengan
 `posteracloudtasks.WithServiceAccountEmail(...)` sehingga Cloud Tasks memasang token OIDC

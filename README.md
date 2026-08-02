@@ -39,7 +39,7 @@ Nearly every decision below points back to that sentence.
 - [Module map](#module-map)
 - [Run it](#run-it)
 - [Modular monolith: what is actually enforced](#modular-monolith-what-is-actually-enforced)
-- [Layers and dependency direction](#layers-and-dependency-direction)
+- [Dependency direction: ports and adapters](#dependency-direction-ports-and-adapters)
 - [The agent architecture](#the-agent-architecture)
 - [Postera: prospective memory](#postera-prospective-memory)
 - [The memory triad](#the-memory-triad)
@@ -238,9 +238,23 @@ billed, because the tokens were really spent
 
 ## Modular monolith: what is actually enforced
 
-"Modular monolith" is easy to claim and easy to violate. Here it means one testable
-property: **the internal import graph is a forest of independent trees that meet only
-at `main`.** That is checkable, so here it is, generated from the source:
+"Modular monolith" is easy to claim and easy to violate. Here it is enforced on two
+independent axes, and both are checkable rather than asserted:
+
+- **Horizontally**, inside this repo: the internal import graph is a forest of trees
+  that meet only at `main` — checked with `go list`.
+- **Vertically**, across repos: the code is stratified into three module namespaces by
+  *who it is for*, and the direction is enforced by the module system itself — a cycle
+  is not a code-review conversation, it is a build failure.
+
+The second axis is the one that does the heavy lifting for the agents, and it is
+covered in [The agent stack](#the-agent-stack-four-layers-that-do-not-know-about-each-other)
+below.
+
+### Horizontally: the in-repo import graph
+
+One testable property: **the internal import graph is a forest of independent trees that
+meet only at `main`.** That is checkable, so here it is, generated from the source:
 
 ```
 cmd/http                        -> agent  agent/ava  agent/specialist  identity
@@ -300,10 +314,139 @@ per user at a time, and the extraction path is mechanical when it stops being tr
 the wallet, for instance, is a `Ledger` interface plus a `postgres` adapter, so it
 becomes a service by replacing that adapter with a client.
 
-## Layers and dependency direction
+### The agent stack: four layers that do not know about each other
+
+The horizontal graph above only describes *this* repo. The more consequential boundary
+runs vertically, through the vanity namespaces in
+[`go.mod`](go.mod), and it is what makes adding an agent to the room cheap:
+
+```
+  ┌── layer 4 ───────────────────────────────────────────────────────────────┐
+  │  github.com/avagenc/chat            HTTP, auth, wallet, the shared thread │
+  │  (this repo)                        the four doors, the run/channel layers│
+  └──────────────────────────────┬───────────────────────────────────────────┘
+                                 │ imports
+  ┌── layer 3 ──────────────────▼────────────────────────────────────────────┐
+  │  go.avagenc.com/{ava,zee,rafal,yori}   persona + embedded instruction.txt │
+  │                                        + its toolset.  New(Config) → Agent│
+  │  knows: its domain and its voice.  does not know: HTTP, users, money,     │
+  │  Zep, or that other agents exist.                                        │
+  └──────────────────────────────┬───────────────────────────────────────────┘
+                                 │ imports
+  ┌── layer 2 ──────────────────▼────────────────────────────────────────────┐
+  │  go.naturallyfunny.dev/agentkit        <integration>/adk — the binding    │
+  │  tuya/adk.Tools(c) · zep/adk.NewSessionService(c) · postera/adk.Tools(p)  │
+  │  knows: both sides.  owns: nothing but the translation.                  │
+  └──────────────────────────────┬───────────────────────────────────────────┘
+                                 │ imports
+  ┌── layer 1 ──────────────────▼────────────────────────────────────────────┐
+  │  go.naturallyfunny.dev/{tuya,gworkspace,spotify,postera}                  │
+  │  plain Go clients for external apps, plus their storage adapters          │
+  │  (tuya/firestore, postera/postgres, …).                                   │
+  │  knows: one vendor API.  has zero agent-framework dependencies.          │
+  └──────────────────────────────────────────────────────────────────────────┘
+```
+
+Read it bottom-up and each layer earns its existence by what it refuses to know:
+
+1. **The client is not agent-aware.** `tuya.Client` talks to Tuya's cloud. It is equally
+   usable from an HTTP handler, a cron job, or a CLI, and it stays testable without
+   pulling ADK's dependency tree in. Grant storage is a sibling subpackage
+   (`tuya/firestore`), so *where the token lives* is a wiring choice too.
+2. **The binding is the only code that knows both sides**, and it is deliberately thin:
+   `adktuya.Tools(client)` returns `[]tool.Tool`. The layout is
+   `<integration>/<framework>` — framework in the *leaf* — so the same client can gain a
+   second binding later without renaming or moving anything. Today the only leaf is
+   `adk`.
+3. **The agent is a value, not a program.** `zee.New(zee.Config{Model, TuyaClient,
+   AdditionalInstruction})` returns an `agent.Agent` and nothing else. Its own doc
+   comment draws the line explicitly: *"Running it — runner, session, and any per-run
+   instruction — is the consumer's responsibility."* The module owns zee's identity; it
+   owns no runtime.
+4. **The application supplies everything that is situational**: which model, whose
+   credentials, which thread, who pays, and — through `AdditionalInstruction` — the fact
+   that zee is standing in a room with three colleagues and a human.
+
+**That fourth point is the whole trick, and it is one field.** `AdditionalInstruction`
+is the seam through which a single-purpose smart-home agent becomes a member of a group
+chat *without the agent module containing one line of group-chat code*. The
+[four-layer instruction composition](#instructions-compose-in-four-layers) plugs in
+exactly there: `ava.Instruction()` and `specialist.Instruction()` produce the string,
+`main.go` passes it to `zee.New`, and zee appends it beneath its own persona.
+
+**The proof that the decoupling is real, not narrated:** `go.avagenc.com/zee` ships its
+own `cmd/cli` and `cmd/web`, each running the same agent against ADK's
+`session.InMemoryService()`. The identical constructed agent is a terminal toy there and
+a colleague in a shared transcript here. Nothing in the module changed; only layer 4
+did.
+
+**The biggest benefit, stated plainly:** *the room is an application-level property.*
+No agent module implements it, so no agent module has to be modified, re-tested, or
+re-released when the room's rules change — and none of them can be quietly broken by a
+group-chat concern leaking downward, because the dependency direction forbids it.
+Adding a fifth specialist is a client, a binding, a persona, and a wiring block. Nothing
+that already exists is touched.
+
+### The session service is where the room is actually built
+
+The gap this stack has to close is specific, and worth naming because it is the hardest
+part of the whole design: **ADK's session model is single-agent.** It has a `user` role
+and a `model` role — one human, one assistant. A room has four assistants who must be
+told apart by each other, on every turn, from a transcript none of them fully wrote.
+
+Nothing off the shelf does that, so the Zep session backend was written from scratch for
+it — [`agentkit/zep/adk`](https://pkg.go.dev/go.naturallyfunny.dev/agentkit/zep/adk),
+implementing ADK's own `session.Service` interface so ADK is unaware anything unusual is
+happening. It closes the gap in four moves:
+
+- **On write, the author survives.** `AppendEvent` maps an event's `Author` — `"ava"`,
+  `"zee"` — to the Zep message's `Name` under the assistant role, so the thread records
+  *which* agent spoke rather than a generic assistant turn. Inbound human-role turns get
+  their name and role from a context-scoped `SpeakerResolver`, which is precisely how
+  the four doors differ: `Speaker{Name: "human"}` at `/ava` and `/zee`
+  ([`ava/handler.go:55`](internal/agent/ava/handler.go),
+  [`specialist/handler.go:57`](internal/agent/specialist/handler.go)),
+  `Speaker{Name: "ava"}` when Ava delegates
+  ([`subagent.go:55`](internal/agent/ava/subagent.go)), and
+  `Speaker{Name: "postera", Role: zep.RoleTypeSystemRole}` for a self-awaken
+  ([`ava/handler.go:190`](internal/agent/ava/handler.go)). One resolver, four
+  attributions, no branching in the service.
+- **On read, the author is re-projected into the content.** `fetchHistory` renders each
+  stored message as `[2026-07-25 14:03 zee] …` before handing it to the model, because
+  ADK's role field cannot carry four identities. Without this the transcript flattens
+  into one indistinct voice and the room stops existing.
+- **The service that fabricates the prefix owns the rule about it.** Because the prefix
+  is synthetic, a model will imitate it. So the same package writes the countermeasure —
+  "the bracketed prefix is metadata, never write one" — plus the authoritative local-time
+  anchor, into session state under a key the consumer registers with
+  `WithInstruction(agent.SessionInstructionDeltaKey)` (`main.go:150`). **That is
+  instruction layer 4**, and it lives here rather than in this repo for a reason: a rule
+  about a message format belongs to the code that invents the format, or the two drift.
+- **Silence stays silent.** [Empty final responses are valid turns](#why-this-shape), so
+  a textless event is never persisted — and `isBlank` rejects zero-width, bidi, and
+  control-only strings too, because a model asked to say nothing will often emit a
+  U+200B rather than `""`, and `unicode.IsSpace` alone would let it into the thread.
+  Function-call and function-response events likewise update in-memory state but never
+  reach Zep, which gives the run two honest representations: ADK sees the complete event
+  stream including tool traffic; the human sees a readable conversation.
+
+Ownership is enforced here too, and fail-closed: `verifyThreadOwner` rejects a thread
+whose owner Zep does not confirm, rather than waving it through. The service is also the
+most heavily tested piece of the stack — its test file is larger than its
+implementation.
+
+The generalizable claim: **this is what "the port was drawn in the right place" buys.**
+ADK's `session.Service` is a seam its authors published; the group chat was built by
+implementing that seam rather than by forking a framework or wrapping agents in glue.
+Every layer above it — the agents, the bindings, this application's handlers — was
+written as if the shared thread were ordinary.
+
+## Dependency direction: ports and adapters
 
 Dependencies point **inward, in one direction, always**. Nothing on an inner ring
-imports an outer one.
+imports an outer one. This is ports and adapters, not a layered architecture — in a
+layered architecture the domain would sit above persistence and depend downward on it,
+which is the one arrangement this repo makes impossible.
 
 ```
         ┌───────────────────────────────────────────────────────────────┐
@@ -389,6 +532,11 @@ Two properties fall out of this arrangement:
   `internal/link/gworkspace` manages the OAuth grant behind that same client. Neither
   imports the other. Connecting an account and using an account are different concerns
   with different lifetimes, and the type system says so.
+- **One vendor client per specialist, never shared.** `zee → tuya`, `rafal → gworkspace`,
+  `yori → spotify` — exactly one each, verified by `GOWORK=off go list -deps` on every
+  roster module. Only two things touch all three: this application, because linking owns
+  the grants, and `agentkit`, because it ships a binding for each. A specialist reaching
+  for a colleague's client would be a new module requirement, not a code-review note.
 
 ## The agent architecture
 
@@ -667,6 +815,36 @@ here — *only our queue can reach this route* — for one header compare, so th
 was dead weight and the option that attached it has been removed rather than left as
 configuration that looks like a control but enforces nothing.
 
+**`/ava/voice` is API-key-only today, and that is a temporary development affordance —
+not the intended end state.** It uses the same ordering as `/ava/awaken` (key first, then
+the `user-id` header), but the two callers are not equivalent, and the difference is the
+whole point. Cloud Tasks is *our* infrastructure: the queue is configured by this
+application, so proving "the caller is our queue" is the same thing as proving the request
+is legitimate. A voice device is not our infrastructure — it is hardware in the world.
+A shared secret there authenticates the **client**, not the **user**: anyone who extracts
+that key from a device can present any `user-id` and speak as that person.
+
+Why it is still like this: putting a real user identity on the device is device work, not
+server work — sign-in on hardware without a browser, secure storage for the refresh token,
+and an hourly token refresh that must survive reboots and flaky connectivity. Holding that
+off while the voice pipeline itself was being built kept one problem at a time in front of
+us. The server side of the change is small and already shaped for it.
+
+The intended end state, stated so it can be held against us: the device carries a Firebase
+identity like the SPA does, `/ava/voice` moves under `firebaseAuthenticator.Authenticate`,
+and **the `user-id` header disappears entirely** — identity comes from the verified token,
+which is the only way the caller stops being able to choose who they are. The API key can
+stay in front of it as client attestation (key first, then bearer), but it stops being the
+thing that decides identity.
+
+What limits the damage in the meantime, and what does not: the key is a deployment-scoped
+secret held by one partner integration, every run is charged to a wallet with a hard
+balance gate (402), and every charge is written to an auditable ledger with the agent,
+session, and trigger recorded — so misuse is bounded and visible after the fact. None of
+that prevents impersonation, which is why this is listed here and in
+[where this is not yet production-grade](#where-this-is-not-yet-production-grade) rather
+than defended as a design.
+
 Other boundaries worth naming:
 
 - **Identity is platform-level, not product-level.** One Firebase project (`avagenc`)
@@ -690,7 +868,11 @@ Other boundaries worth naming:
 
 ## The module family
 
-Three vanity module namespaces, split by *who the code is for* rather than by size:
+[The agent stack](#the-agent-stack-four-layers-that-do-not-know-about-each-other)
+described what the layers *do*; this section is about why they are separate **modules**
+rather than packages in one repo.
+
+Three vanity namespaces, split by *who the code is for* rather than by size:
 
 ```
 github.com/avagenc/chat            this repo — the application. Depends on both
@@ -700,7 +882,7 @@ go.avagenc.com/{ava,zee,rafal,yori}   product-specific agents: persona, toolset,
        │                              domain instructions. Reusable across Avagenc
        │                              products, meaningless outside Avagenc.
        ▼
-go.naturallyfunny.dev/{postera,agentkit,api,tuya,gworkspace,spotify,adk}
+go.naturallyfunny.dev/{postera,agentkit,api,tuya,gworkspace,spotify}
                                       product-agnostic SDKs: no Avagenc concept
                                       appears in them. Independently useful,
                                       independently versioned, publicly documented.
@@ -716,7 +898,7 @@ them.
 Why separate modules rather than one repo with packages:
 
 - **A module boundary is a version boundary.** `postera` is at v0.22.0 and `zee` at
-  v0.6.1 because they change for unrelated reasons. In a single module they would share
+  v0.6.2 because they change for unrelated reasons. In a single module they would share
   a version number and every agent tweak would look like an SDK release.
 - **It forces the generic/specific split to be real.** Wanting to reach from `postera`
   into an Avagenc type is not a code-review conversation; it is a dependency cycle the
@@ -732,6 +914,23 @@ Why separate modules rather than one repo with packages:
 app is two commits, two tags, and a `go get`. That is real friction, accepted because
 the alternative — one module — makes the boundary advisory, and an advisory boundary
 between "generic SDK" and "our product's persona" does not survive a deadline.
+
+**What that friction looked like in practice:** the binding layer was reorganized from
+`go.naturallyfunny.dev/adk/<integration>` to `go.naturallyfunny.dev/agentkit/<integration>/adk`,
+moving the framework name into the leaf so a non-ADK binding can be added without
+renaming anything. Because each agent module versions independently, they migrated one
+at a time rather than in a single flag-day commit, and for a while the old module stayed
+in the graph as an indirect dependency of whichever agent had not yet cut a release.
+`zee v0.6.2` was the last of them; `go.naturallyfunny.dev/adk` is now absent from `go.mod`
+entirely.
+
+That migration is also worth reading as a caution about *where* a claim gets verified.
+A `go.work` in the parent directory replaces the agent modules with local working copies,
+so `go list` on a laptop describes the laptop. `zee` had migrated in its working copy long
+before it cut a release, and the released tag this repo pinned still imported the old
+binding — the version Docker actually built. Every dependency claim in this README and in
+`DIAGRAM.md` is checked with `GOWORK=off` for that reason, and the habit outlives the
+particular debt it caught.
 
 ## Infrastructure
 
@@ -768,6 +967,16 @@ A workload that is I/O-bound, stateless, and bursty is the exact shape serverles
 invented for. Renting a machine by the hour to hold sockets open would mean paying
 continuously for a process that is, most of the time, doing nothing but waiting.
 
+**The fit is structural, not a retrofit.** None of those three properties were engineered
+to please a hosting platform; each one falls out of a decision made for its own reasons.
+The transcript is the state, so conversation lives in Zep rather than in process memory.
+Money is a double-entry ledger, so it lives in Postgres where the invariant can be
+checked. Future wake-ups are posterum rows plus a Cloud Tasks callback precisely *because*
+a background goroutine outliving a response would be a lie on a platform that may stop the
+instance the moment the response is written. Statelessness here is a design property that
+happens to make the cheapest deployment model also the correct one — which is why the
+platform choice reads as obvious rather than clever.
+
 **Observed cost so far: zero.** This project has been through several architectures —
 including an earlier microservices phase with many Cloud Run services across both dev and
 production projects — and has stayed inside the GCP free tier throughout. That is not a
@@ -795,13 +1004,55 @@ Run's default is up to 80 simultaneous requests per instance — so as traffic g
 cost per request *falls*: the same instance-second is amortised over more concurrent
 waits. Reserved capacity has the opposite curve.
 
+**In-instance concurrency is the decisive property, and it is easy to miss.** Almost the
+entire wall-clock of a run is spent blocked on Gemini, Zep, or a vendor API; the CPU is
+idle. A platform that multiplexes many such runs onto one instance charges once for that
+idle time, while a platform that dedicates an execution environment per request charges
+for every waiting run separately. That is exactly the difference between Cloud Run and
+FaaS: Lambda processes one request per execution environment at a time, so a hundred
+users waiting on the model means a hundred billed environments. Here they can share one
+128Mi instance. For an I/O-bound multi-tenant agent app, that single line of the pricing
+model moves cost-per-conversation more than any code optimisation available to us.
+
+**Against a VPS**, which is the cheapest-looking option on paper: a rented box bills 24/7
+for a process that is idle most of the day, and the sticker price is the smallest part of
+it. Whoever owns that box also owns kernel and dependency patching, TLS certificates and
+their renewal, a process supervisor and restart policy, log shipping, an SSH surface that
+must be locked down and watched, and a single point of failure with no failover. None of
+that work makes the product better; all of it has to be done anyway, forever, correctly.
+
+**Against managed Kubernetes** (GKE/EKS): a cluster costs money before it serves a single
+request, and it buys capabilities this system does not use. There is one deployable unit
+here, no service mesh, no pod-to-pod policy, no multi-team tenancy, no rollout topology
+more complex than "replace the revision". Kubernetes is an excellent answer to *many*
+services with heterogeneous scaling and shared platform concerns; adopting it for one
+stateless HTTP binary means paying its operational complexity as a fixed cost and
+receiving, in return, a slower deploy and a new class of outage — control plane upgrades,
+node pool drift, misconfigured requests/limits — that Cloud Run simply does not have.
+
+**Security is the part of this argument people skip.** On Cloud Run the network edge is
+Google's: TLS termination and managed certificates, HTTP/2, a global front end with DDoS
+absorption, no inbound ports of ours to firewall, no SSH endpoint to exist at all, and a
+runtime image (`distroless/static`) with no shell to drop into. Deployer and runtime are
+separate service accounts. Reproducing that posture on self-managed infrastructure is not
+a weekend of work — it is a standing responsibility, and the honest comparison is not
+"Cloud Run vs. a VPS" but "Google's production network team vs. whoever we could afford
+to hire". The managed option is not the lazy choice here; it is the one that yields a
+better security outcome for less money.
+
 Against AWS specifically, since it is the reflex answer: the gap is not that AWS lacks
 containers, it is that **AWS has no equally direct request-billed, scale-to-zero
-container product**. Fargate does not idle at zero and wake on a request; App Runner
-keeps provisioned capacity warm. Getting Cloud Run's behaviour on AWS means assembling
-several components — load balancer, target groups, VPC and subnets, task definitions,
-IAM roles — each with its own configuration surface and its own line on the bill, to
-reach the same outcome that here is one `gcloud run deploy` in a CI step.
+container product**. Cloud Run was the product that defined this category — a container
+image, an HTTPS URL, per-request billing, scale to zero, built on Knative and shipped in
+2019 — and the AWS answers arrived later and differently shaped. Fargate does not idle at
+zero and wake on a request; App Runner keeps provisioned capacity warm and bills for it;
+Lambda is request-billed but one-request-per-environment (see above) and, behind API
+Gateway, caps a synchronous response at about 29 seconds — under which an orchestration
+run that legitimately takes a minute cannot return at all. Getting Cloud Run's behaviour
+on AWS means assembling several components — load balancer, target groups, VPC and
+subnets, task definitions, IAM roles — each with its own configuration surface and its own
+line on the bill, to reach the same outcome that here is one `gcloud run deploy` in a CI
+step.
 
 The second reason is gravity. Identity (Firebase), the model (Gemini), scheduling (Cloud
 Tasks), and the linking datastore (Firestore) are all Google services this product is
@@ -891,6 +1142,52 @@ The deeper fit is architectural: Postera's `Queue` port is two methods, `Enqueue
 `Cancel`. Cloud Tasks maps onto it one-to-one, with no adapter logic bridging a mismatch —
 the sign that the primitive and the requirement are actually the same shape.
 
+### ADK in Go, rather than a Python agent framework
+
+**Choice.** `google.golang.org/adk` as a *library* inside one Go binary: `zee.New(...)`
+returns an `agent.Agent`, `runner.New(...)` returns a runner this application owns and
+calls.
+**Alternative.** LangChain/LangGraph, CrewAI, or the OpenAI Agents SDK — the Python
+default — or a hosted agent runtime that runs the graph for you.
+**Why.** The usual framework comparison assumes an *internal* agent: one operator, a
+notebook, a workflow that runs when a human triggers it. This is the other case — a
+**public, multi-tenant agentic application** where every signed-in user can start a run at
+any time, each run holds open several network calls for tens of seconds, and every
+megabyte and millisecond is multiplied by concurrent users and paid for by us. Under that
+constraint the runtime properties dominate the ecosystem properties:
+
+- **Concurrency is a goroutine, not a worker.** A run is mostly blocked on the model, and
+  Go lets thousands of blocked runs share one small instance. The Python frameworks assume
+  a worker-per-request process model (or an async stack whose baseline memory is still
+  measured in hundreds of megabytes per worker); the whole roster here — four agents, four
+  runners, every client — fits in **128Mi with 1 vCPU**. That number is not a boast, it is
+  the deploy configuration.
+- **Cold start decides whether scale-to-zero is usable.** A statically linked binary on
+  `distroless/static` is serving within milliseconds of the container starting. An
+  interpreter plus a large import tree is seconds — and seconds of cold start is precisely
+  what pushes teams into keeping instances warm, which is how a "cheap" architecture
+  quietly becomes a fixed monthly bill.
+- **No runtime to operate.** ADK ships no server, no scheduler, no state store, no control
+  plane. Nothing new appears in the deployment diagram: the agent is a value in the same
+  process that already terminates HTTP. A hosted agent runtime would add an external
+  dependency on the critical path of every message, plus a second place where user data
+  lives.
+- **Published seams instead of forks.** The group chat exists because ADK's
+  `session.Service` is an interface its authors published: the shared-thread behaviour was
+  built by implementing that seam, not by patching a framework. Its event stream is a
+  plain `iter.Seq2[*session.Event, error]`, and each event carries usage metadata — which
+  is the only reason per-run billing can be exact rather than estimated.
+- **The compiler is part of the review.** Tools, agents, and sub-agents are typed values
+  wired in `main.go`; a missing dependency is a build error, not a runtime KeyError on
+  someone's first message. For code whose failure mode is spending a user's money
+  incorrectly, that matters more than having 300 pre-built integrations.
+
+**Trade-off, stated plainly:** the Python ecosystem is far larger, and choosing Go means
+writing the integrations nobody has written yet. That cost is visible and owned — it is
+exactly what `go.naturallyfunny.dev/agentkit` and the vendor clients *are*. In exchange,
+the integrations are typed, tested, versioned, and reusable outside this product, instead
+of being someone else's plugin whose upgrade schedule we do not control.
+
 ### Gemini, chosen on context behaviour
 
 **Choice.** `gemini-3.5-flash` for every agent in the roster.
@@ -949,6 +1246,12 @@ the other's job.
 
 Stated plainly, because a reviewer will find these anyway:
 
+- **`/ava/voice` authenticates the client, not the user.** A shared API key plus a
+  `user-id` header means whoever holds that key can act as any user on that route. It is a
+  temporary affordance for device development, and the fix is known and small on this side:
+  move the route under Firebase and delete the header. Full reasoning, including what
+  bounds the damage today, is in [trust boundaries](#trust-boundaries). This should land
+  before the voice client reaches anyone outside the pilot.
 - **`--max-instances=1`.** This service is still in development, not carrying production
   traffic, and the cap is a cost ceiling for that phase — not an architectural limit. It
   is less restrictive than it looks (one instance still serves many concurrent requests),
