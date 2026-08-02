@@ -25,8 +25,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/avagenc/chat/internal/wallet"
-	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
+	"github.com/avagenc/chat/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -93,7 +92,7 @@ func newTestHandler(t *testing.T) (*Handler, *fakeMidtrans) {
 	}
 	// The goose directives in the migration files are plain SQL comments, so
 	// applying them is just executing the files in order.
-	migrations, err := fs.Glob(walletpostgres.MigrationsFS, "migrations/*.sql")
+	migrations, err := fs.Glob(wallet.MigrationsFS, "migrations/*.sql")
 	if err != nil {
 		t.Fatalf("glob migrations: %v", err)
 	}
@@ -102,7 +101,7 @@ func newTestHandler(t *testing.T) (*Handler, *fakeMidtrans) {
 		t.Fatal("no migration files found")
 	}
 	for _, path := range migrations {
-		sql, err := fs.ReadFile(walletpostgres.MigrationsFS, path)
+		sql, err := fs.ReadFile(wallet.MigrationsFS, path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
@@ -111,7 +110,7 @@ func newTestHandler(t *testing.T) (*Handler, *fakeMidtrans) {
 		}
 	}
 
-	ledger, err := walletpostgres.NewLedger(ctx, pool)
+	ledger, err := wallet.NewLedger(ctx, pool)
 	if err != nil {
 		t.Fatalf("NewLedger: %v", err)
 	}

@@ -1,4 +1,4 @@
-package wallet
+package agent
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"google.golang.org/adk/session"
+
+	"github.com/avagenc/chat/wallet"
 )
 
 // Usage accumulates Gemini token counts across one run's model-call events.
@@ -40,7 +42,7 @@ func (u *Usage) Add(e *session.Event) {
 	}
 }
 
-// Price is the billing rate in rupiah per million tokens. With wallet amounts
+// Price is the billing rate in rupiah per million tokens. With ledger amounts
 // in micro-rupiah the conversion is exact integer arithmetic:
 // micros = rate_idr_per_mtok * tokens.
 type Price struct {
@@ -49,20 +51,15 @@ type Price struct {
 	OutputPerMTok int64 `json:"output_per_mtok"` // candidates + thinking tokens
 }
 
-// KindAgentRun is the wallet entry kind for one agent run's token charge.
-const KindAgentRun Kind = "agent_run"
-
-// Run is the chat-side context of one agent run, recorded in the entry
-// metadata.
+// Run is the context of one agent run, recorded in the receipt.
 type Run struct {
 	Agent   string // "ava", "zee", "rafal"
 	Session string
 	Trigger string // "human", "ava", "postera"
 }
 
-// Receipt is the JSON shape of an agent_run transaction's metadata — the
-// usage log. handler.go unmarshals it to sum today's token usage; keep in
-// sync.
+// Receipt is the JSON shape of a run charge's metadata — the usage log.
+// usage.go unmarshals it to sum today's token usage; keep in sync.
 type Receipt struct {
 	Agent   string `json:"agent"`
 	Session string `json:"session"`
@@ -78,8 +75,17 @@ type Receipt struct {
 	Price Price `json:"price"` // rate snapshot at charge time
 }
 
-// Biller converts a run's accumulated token usage into one balanced wallet
-// transaction: debit the user, credit revenue.
+// Ledger is the half of a wallet ledger that billing uses: charging writes,
+// it never reads. Declared here rather than taken as wallet.Ledger so a
+// Biller cannot reach a balance or an entry list even by accident.
+type Ledger interface {
+	Transact(ctx context.Context, spec wallet.Spec) (*wallet.Transaction, error)
+}
+
+// Biller converts a run's accumulated token usage into one recorded charge.
+// It lives beside the agents that spend the tokens, not beside the ledger
+// that stores the money: the token-to-rupiah rules are this product's, while
+// the ledger is meant to serve any of them.
 type Biller struct {
 	ledger Ledger
 	price  Price
@@ -89,10 +95,20 @@ func NewBiller(ledger Ledger, price Price) *Biller {
 	return &Biller{ledger: ledger, price: price}
 }
 
-// Charge debits the user for one run against revenue and records the usage
-// breakdown as the transaction's metadata. No-op when the run consumed
-// nothing. The write survives request cancellation: tokens were already
-// spent, so the charge must land even after the client disconnects.
+// TxAgentRun is the wallet transaction type a run charge writes. Untyped and
+// minted here, not in the wallet: the ledger stores the label and never reads
+// it, so what an agent run is is this side's word.
+const TxAgentRun = "agent_run"
+
+// chargeCurrency is rupiah because Price is quoted in rupiah per million
+// tokens: the rate decides what currency the micros derived from it are in,
+// and there is only one rate.
+const chargeCurrency = wallet.IDR
+
+// Charge bills the user for one run and records the usage breakdown as the
+// charge's receipt. No-op when the run consumed nothing. The write survives
+// request cancellation: tokens were already spent, so the charge must land
+// even after the client disconnects.
 func (b *Biller) Charge(ctx context.Context, userID string, run Run, u Usage) error {
 	if u.Total == 0 {
 		return nil
@@ -106,8 +122,8 @@ func (b *Biller) Charge(ctx context.Context, userID string, run Run, u Usage) er
 	output := u.Candidates + u.Thoughts
 	micros := b.price.InputPerMTok*input + b.price.CachedPerMTok*u.Cached + b.price.OutputPerMTok*output
 	if micros < 1 {
-		// Floor at 1 micro (10^-6 IDR) so the transaction is still recorded
-		// — it doubles as the usage log.
+		// Floor at 1 micro (10^-6 IDR) so the charge is still recorded — it
+		// doubles as the usage log.
 		micros = 1
 	}
 
@@ -128,15 +144,14 @@ func (b *Biller) Charge(ctx context.Context, userID string, run Run, u Usage) er
 		return fmt.Errorf("charge %s run: marshal receipt: %w", run.Agent, err)
 	}
 
-	_, err = b.ledger.Transact(context.WithoutCancel(ctx), Spec{
-		Kind:     KindAgentRun,
+	if _, err := b.ledger.Transact(context.WithoutCancel(ctx), wallet.Spec{
+		Type:     TxAgentRun,
 		Metadata: metadata,
-		Postings: []Posting{
-			{AccountID: UserAccountID(userID), Amount: -micros},
-			{AccountID: AccountRevenue, Amount: micros},
+		Postings: []wallet.Posting{
+			{AccountID: wallet.UserAccountID(userID, chargeCurrency), Amount: -micros},
+			{AccountID: wallet.RevenueAccountID(chargeCurrency), Amount: micros},
 		},
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("charge %s run: %w", run.Agent, err)
 	}
 	return nil

@@ -15,10 +15,10 @@ const microsPerRupiah = 1_000_000
 // so a user never sees more than they have — which matters when a post-paid
 // balance dips negative.
 type Handler struct {
-	ledger Ledger
+	ledger *Ledger
 }
 
-func NewHandler(l Ledger) *Handler {
+func NewHandler(l *Ledger) *Handler {
 	return &Handler{ledger: l}
 }
 

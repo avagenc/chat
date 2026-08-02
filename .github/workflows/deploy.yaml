@@ -90,7 +90,7 @@ jobs:
           WALLET_DB_URL: ${{ secrets.WALLET_DB_URL }}
         run: |
           go run github.com/pressly/goose/v3/cmd/goose@v3.27.2 \
-            -dir internal/wallet/postgres/migrations \
+            -dir wallet/migrations \
             postgres "$WALLET_DB_URL" up
 
       - name: Deploy to Cloud Run

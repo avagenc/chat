@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
-	"github.com/avagenc/chat/internal/wallet"
 	zep "github.com/getzep/zep-go/v3"
 	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
 	apihttp "go.naturallyfunny.dev/api/http"
@@ -25,10 +24,10 @@ var textChannelInstruction string
 
 type Handler struct {
 	runner *runner.Runner
-	biller *wallet.Biller
+	biller *agent.Biller
 }
 
-func NewHandler(r *runner.Runner, b *wallet.Biller) *Handler {
+func NewHandler(r *runner.Runner, b *agent.Biller) *Handler {
 	return &Handler{runner: r, biller: b}
 }
 
@@ -65,9 +64,9 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
-	var usage wallet.Usage
+	var usage agent.Usage
 	defer func() {
-		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
+		if err := h.biller.Charge(r.Context(), userID, agent.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
 			log.Printf("error: charge user %s for ava run: %v", userID, err)
 		}
 	}()
@@ -131,9 +130,9 @@ func (h *Handler) HandleVoice(w http.ResponseWriter, r *http.Request) {
 			agent.RunInstructionDeltaKey:     "",
 		}),
 	)
-	var usage wallet.Usage
+	var usage agent.Usage
 	defer func() {
-		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
+		if err := h.biller.Charge(r.Context(), userID, agent.Run{Agent: "ava", Session: sessID, Trigger: "human"}, usage); err != nil {
 			log.Printf("error: charge user %s for ava run: %v", userID, err)
 		}
 	}()
@@ -200,9 +199,9 @@ func (h *Handler) HandleSelfAwaken(w http.ResponseWriter, r *http.Request) {
 			agent.RunInstructionDeltaKey:     ranByPosteraInstruction,
 		}),
 	)
-	var usage wallet.Usage
+	var usage agent.Usage
 	defer func() {
-		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: "ava", Session: sessID, Trigger: "postera"}, usage); err != nil {
+		if err := h.biller.Charge(r.Context(), userID, agent.Run{Agent: "ava", Session: sessID, Trigger: "postera"}, usage); err != nil {
 			log.Printf("error: charge user %s for ava run: %v", userID, err)
 		}
 	}()

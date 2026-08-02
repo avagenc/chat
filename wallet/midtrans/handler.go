@@ -28,7 +28,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/avagenc/chat/internal/wallet"
+	"github.com/avagenc/chat/wallet"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apiuser "go.naturallyfunny.dev/api/user"
 )
@@ -38,7 +38,7 @@ import (
 // or https://app.midtrans.com); serverKey authenticates the Snap API call and
 // verifies notification signatures.
 type Handler struct {
-	ledger    wallet.Ledger
+	ledger    *wallet.Ledger
 	client    *http.Client
 	serverKey string
 	baseURL   string
@@ -47,7 +47,7 @@ type Handler struct {
 	apiBaseURL string
 }
 
-func NewHandler(ledger wallet.Ledger, client *http.Client, serverKey, baseURL string) *Handler {
+func NewHandler(ledger *wallet.Ledger, client *http.Client, serverKey, baseURL string) *Handler {
 	return &Handler{ledger: ledger, client: client, serverKey: serverKey, baseURL: baseURL, apiBaseURL: coreAPIBaseURL(baseURL)}
 }
 
@@ -159,9 +159,9 @@ func newOrderID(userID string) (string, error) {
 	return fmt.Sprintf("topup~%s~%x", userID, nonce), nil
 }
 
-// KindTopup is the wallet entry kind for a paid top-up: credit user, debit
-// pending — the same posting pair whatever the gateway.
-const KindTopup wallet.Kind = "topup"
+// TxTopup is the wallet transaction type for a paid top-up: credit user,
+// debit pending — the same posting pair whatever the gateway.
+const TxTopup = "topup"
 
 // HandleNotification is the Midtrans HTTP notification webhook (URL is
 // configured in the Midtrans dashboard). It sits outside Firebase auth —
@@ -286,7 +286,7 @@ func (h *Handler) HandleNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = h.ledger.Transact(r.Context(), wallet.Spec{
-		Kind:     KindTopup,
+		Type:     TxTopup,
 		Ref:      n.OrderID,
 		Metadata: metadata,
 		Postings: []wallet.Posting{

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
-	"github.com/avagenc/chat/internal/wallet"
 	"go.avagenc.com/ava"
 	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
 	apitime "go.naturallyfunny.dev/api/time"
@@ -22,13 +21,13 @@ type subAgent struct {
 	name           string
 	description    string
 	runner         *runner.Runner
-	biller         *wallet.Biller
+	biller         *agent.Biller
 	runInstruction string
 }
 
 var _ ava.SubAgent = (*subAgent)(nil)
 
-func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *wallet.Biller, runInstruction string) ava.SubAgent {
+func NewSubAgent(a adkagent.Agent, r *runner.Runner, b *agent.Biller, runInstruction string) ava.SubAgent {
 	return &subAgent{
 		name:           a.Name(),
 		description:    a.Description(),
@@ -66,9 +65,9 @@ func (s *subAgent) Run(ctx context.Context, message string) (string, error) {
 		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
-	var usage wallet.Usage
+	var usage agent.Usage
 	defer func() {
-		if err := s.biller.Charge(ctx, userID, wallet.Run{Agent: s.name, Session: sessID, Trigger: "ava"}, usage); err != nil {
+		if err := s.biller.Charge(ctx, userID, agent.Run{Agent: s.name, Session: sessID, Trigger: "ava"}, usage); err != nil {
 			log.Printf("error: charge user %s for %s run: %v", userID, s.name, err)
 		}
 	}()

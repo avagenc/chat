@@ -1,8 +1,7 @@
 // Package zep implements the parent knowledge package's Store port on top of
 // Zep, mapping Zep's types and not-found errors onto knowledge's. It lives
-// beside its contract, like wallet/postgres beside wallet: swapping providers
-// means writing a sibling adapter under internal/knowledge, not editing
-// knowledge itself. (The agent side has its own Zep surface, adkzep — this
+// beside its contract: swapping providers means writing a sibling adapter
+// under internal/knowledge, not editing knowledge itself. (The agent side has its own Zep surface, adkzep — this
 // package only covers semantic memory.)
 package zep
 

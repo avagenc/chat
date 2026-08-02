@@ -61,7 +61,7 @@ dan file ini berbeda soal cara menulis kode, file ini yang menang.
   satu-satunya kebenaran global sistem ini; panjangnya bukan kompleksitas, itu
   keterbukaan.
 - **Package cuma menyediakan konstruktor kecil yang MENERIMA dependency sudah-jadi**
-  (`ava.NewHandler`, `specialist.NewHandler`, `ava.NewSubAgent`, `wallet.NewBiller`).
+  (`ava.NewHandler`, `specialist.NewHandler`, `ava.NewSubAgent`, `agent.NewBiller`).
 - **Konstruktor terima interface, bukan tipe konkret**, kalau memungkinkan.
 - **Consumer-defined interface.** Port dideklarasikan oleh package yang
   MEMBUTUHKANNYA, seukuran yang dipakai, diimplementasikan adapter di subpackage
@@ -126,17 +126,20 @@ tambahkan comment jenis lain.
 ## 1.5 Testing
 
 - **Tidak ada mock testing.** Test perilaku nyata, bukan ekspektasi terhadap dobel.
-- **Integration test untuk yang menyentuh infrastruktur.** `wallet/postgres` dan
+- **Integration test untuk yang menyentuh infrastruktur.** `wallet` dan
   `wallet/midtrans` dites terhadap PostgreSQL sungguhan, SKIP kalau
   `WALLET_TEST_DB_URL` tidak di-set. Tiap run DROP tabel dan apply ulang migrations —
   arahkan ke database sekali pakai, JANGAN ke database bersama.
 - **Table-driven test untuk logika murni** yang bisa jalan tanpa infrastruktur:
-  `internal/link` (HMAC state), `internal/wallet` (aritmetika billing),
+  `internal/link` (HMAC state), `internal/agent` (aritmetika billing),
   `internal/knowledge/zep` (drain pagination).
-- **In-memory `Ledger` di `wallet/biller_test.go` BUKAN mock.** Dia implementasi kedua
-  yang NYATA dari port yang sama, menjaga aturan balanced-postings, tanpa ekspektasi
-  terekam — justru bukti port-nya berguna. Kalau ragu bedanya: mock memverifikasi
-  PANGGILAN, implementasi kedua memverifikasi PERILAKU.
+- **In-memory ledger di `agent/biller_test.go` BUKAN mock.** Dia implementasi NYATA dari
+  `agent.Ledger`/`agent.LedgerReader`: MENEGAKKAN aturan balanced-postings (spec tidak
+  seimbang ditolak) dan menjawab `Entries`/`Balance` dari yang benar-benar dia simpan,
+  tanpa ekspektasi terekam. Kalau ragu bedanya: mock memverifikasi PANGGILAN,
+  implementasi kedua memverifikasi PERILAKU. **Ini juga alasan kedua port itu ada** —
+  `wallet.Ledger` sekarang struct PostgreSQL konkret, jadi tanpa port di sisi agent,
+  aritmetika uang hanya bisa dites kalau ada database.
 - **DILARANG unit test handler dengan dobel HTTP.** Handler adalah glue; kegagalannya
   adalah kegagalan wiring, dan itu tidak ditangkap test yang wiring-nya palsu.
 - Laporkan hasil test APA ADANYA. Test yang skip disebut skip, bukan disebut lulus.
@@ -164,6 +167,25 @@ internal/agent/
                             agent. `%s` diisi tiap kind saat build; placeholder
                             {channel_instruction}/{run_instruction}/{sess_instruction}
                             dibiarkan utuh untuk di-resolve per run.
+  biller.go                 Usage/Price/Run/Receipt + TxAgentRun (untyped) + port
+                            Ledger (Transact saja) + Biller.Charge — token usage →
+                            satu transaksi agent_run (debit user + credit revenue). Di
+                            sini, bukan di wallet: harga model itu urusan produk ini.
+                            Port-nya BUKAN untuk menghindari import (agent memang
+                            import wallet, dan itu sah): dia ada karena punya DUA
+                            implementasi nyata hari ini — *wallet.Ledger di produksi,
+                            ledger in-memory di test — sehingga aritmetika uang tetap
+                            teruji tanpa PostgreSQL. Ini paruh kedua dari "accept
+                            interfaces, return structs"; jangan dihapus.
+  usage.go                  port LedgerReader (Entries saja) + UsageHandler.HandleToday
+                            (GET /wallet/usage/today) — pembaca Receipt, sepackage
+                            dengan penulisnya supaya bentuk JSON-nya tidak bisa drift.
+                            Port terpisah dari biller.go: satu file satu kebutuhan,
+                            sehingga endpoint yang cuma melaporkan tidak bisa
+                            membukukan.
+  biller_test.go            aritmetika billing + bentuk posting (pasangan balanced,
+                            akun benar, type) terhadap ledger in-memory yang memenuhi
+                            kedua port di atas (§1.5)
   ava/handler.go            Handler Ava: HandleHuman (teks), HandleVoice, HandleSelfAwaken
   ava/subagent.go           subAgent + NewSubAgent — adapter specialist → ava.SubAgent
   ava/instruction.go        Instruction() = base + kind Ava
@@ -217,43 +239,76 @@ internal/postera/handler.go memory PROSPEKTIF: HTTP glue di atas postera.Postari
                             service/port — Postarius sendiri orchestrator yang
                             scope-aware via context.
 
-internal/wallet/            fitur wallet FIRST-PARTY, satu vertical slice
-  ledger.go                 port Ledger DOUBLE-ENTRY (Transact = postings balanced
-                            jumlah nol), tipe Posting/Spec/Transaction/Entry/
-                            EntriesQuery, Kind open-set, sentinel ErrDuplicateRef,
-                            micro-rupiah int64 credit-positive, helper UserAccountID,
-                            konstanta AccountRevenue/AccountPending
-  biller.go                 Usage/Price/Run/Receipt + Biller.Charge — token usage →
-                            debit user + credit revenue
-  guard.go                  Guard.RequireBalance middleware → 402
-  handler.go                HandleBalance (GET /wallet), HandleTodayUsage
-                            (GET /wallet/usage/today)
-  biller_test.go            aritmetika billing terhadap Ledger in-memory (§1.5)
+wallet/                     DI ROOT, BUKAN internal/ — satu-satunya package aplikasi
+                            yang begitu, dan itu disengaja: wallet memang diniatkan
+                            dipakai lintas produk Avagenc, sementara sisanya tidak.
+                            TIDAK TAHU apa yang dijual konsumennya: tidak ada
+                            Usage/Price/Receipt di sini, tidak ada transaction type
+                            yang dia tafsirkan sendiri. Karena dia library dan bukan fitur,
+                            `internal/agent` boleh meng-import-nya tanpa melanggar
+                            aturan graf import (lihat BAGIAN 6 §4).
+  ledger.go                 tipe Posting/Spec/Transaction/Entry/EntriesQuery,
+                            sentinel ErrDuplicateRef, micros int64 credit-positive,
+                            Currency (+ IDR), ID akun ber-currency
+                            (UserAccountID/ParseUserAccountID/RevenueAccountID/
+                            PendingAccountID). `Spec.Type`/`Entry.Type` adalah
+                            `string` POLOS, bukan tipe bernama — himpunannya terbuka
+                            dan ledger tidak pernah membacanya, jadi konsumen yang
+                            mendeklarasikan konstanta untyped-nya sendiri
+                            (agent.TxAgentRun, midtrans.TxTopup), pola net/http
+                            MethodGet. JANGAN dijadikan tipe bernama lagi: itu
+                            mengklaim kosakata milik pemakai, dan kolom SQL-nya
+                            tetap bernama `kind` — Go-nya saja yang diganti supaya
+                            tidak bentrok dengan lapis KIND instruksi di
+                            internal/agent — DAN `Ledger` itu sendiri: STRUCT pgx
+                            konkret, BUKAN interface. Tidak ada port di sini dan
+                            jangan ditambahkan: jaminan yang bikin ini ledger hidup
+                            di Postgres, bukan di Go (constraint trigger deferred
+                            SUM=0, unique partial index di ref, row lock berurutan
+                            account ID), jadi interface hanya akan menjanjikan
+                            substitutability yang cuma bisa dipenuhi sesuatu yang
+                            lebih lemah. Konsumen yang butuh seam mendeklarasikan
+                            interface-nya SENDIRI di sisinya (lihat agent/biller.go).
+                            Database KHUSUS wallet, tabel tanpa prefix: accounts
+                            (identitas + currency + row lock — TANPA kolom saldo) +
+                            transactions (journal header) + entries (journal lines,
+                            append-only; saldo = SUM(amount) dari sini).
+  migrations.go             embed migrations/*.sql (dipakai test + cmd/wallet/migrate)
+  migrations/               skema goose, TANPA seksi Down (test menjalankan file apa
+                            adanya). Dijalankan goose di pipeline deploy dengan
+                            `-dir wallet/migrations` — runtime hanya VALIDASI tabel
+                            ada, tidak pernah DDL.
+  ledger_test.go            integration test terhadap PostgreSQL sungguhan (§1.5)
+  guard.go                  Guard.RequireBalance middleware → 402. Tetap di sini, BUKAN
+                            di agent: dia cuma butuh Balance dan tidak kenal agent.
+  handler.go                HandleBalance (GET /wallet)
   midtrans/                 top-up via Midtrans Snap, satu subpackage per integrasi
                             (pola link). LENGKAP + ADA TEST, tapi SAAT INI DI-COMMENT
                             OUT di main.go menunggu keputusan produk.
-  postgres/                 adapter pgx di database KHUSUS wallet (tabel tanpa prefix):
-                            accounts (saldo termaterialisasi, row lock, lock order
-                            deterministik by account ID) + transactions (journal header)
-                            + entries (journal lines, append-only). Skema di migrations/
-                            (format goose), dijalankan goose di pipeline deploy —
-                            runtime hanya VALIDASI tabel ada, tidak pernah DDL.
 ```
 
 Lihat README.md untuk arsitektur menyeluruh.
 
-**Catatan idiom penempatan package.** Semua package app tinggal di `internal/` —
-kriterianya LIBRARY vs FIRST-PARTY, bukan rapi-tidaknya kontrak. Memory dulu package
-public di root (pola `image` + `image/png`) tapi diinternalkan karena tidak ada konsumen
-eksternal: package public di root module aplikasi adalah komitmen API yang tidak
-dibutuhkan siapa pun (sharing lintas produk butuh module terpisah apa pun yang terjadi).
+**Catatan idiom penempatan package.** Kriterianya SATU: **apakah package ini memang
+diniatkan dipakai lintas produk?** Kalau ya, dia di root. Kalau tidak, `internal/`.
+Bukan soal rapi-tidaknya kontrak, bukan soal seberapa bersih port-nya.
+
+`wallet` ada di ROOT karena itu memang niatnya sejak awal: buku besar yang tidak tahu
+apa yang dijual konsumennya, dimaksudkan melayani produk Avagenc mana pun. Konsekuensi
+langsungnya: `internal/agent` boleh meng-import-nya tanpa melanggar apa pun, karena itu
+bukan fitur mengintip fitur tetangga — itu aplikasi memakai library-nya sendiri.
+Sebaliknya memory dulu juga package public di root (pola `image` + `image/png`) tapi
+DIINTERNALKAN, karena tidak pernah ada niat menggeneralkannya lintas project — dan
+package public di root tanpa niat itu cuma komitmen API yang tidak dibutuhkan siapa pun.
+
 Lalu package `memory` gabungan dipecah jadi `session`/`knowledge`/`postera` karena tiga
 slice itu tidak berbagi apa pun kecuali kata "memory" — **package per konsep, bukan per
-tema.** Pola kontrak+adapter-nya seragam: package fitur berisi port + tipe + sentinel +
-slice-nya (wallet: `ledger.go`; session/knowledge: `service.go`), adapter subpackage di
-sampingnya import package fitur dan HANYA di-wire di main — service TIDAK PERNAH import
-adapter. Jangan setengah-setengah: kontrak internal dengan adapter public itu
-kontradiksi (API public yang bertipe internal tidak bisa dipakai siapa pun).
+tema.** Pola kontrak+adapter berlaku di mana backend-nya memang bisa ditukar:
+`session`/`knowledge` mendeklarasikan port `Store` di `service.go`, adapter Zep di
+subpackage sebelahnya, di-wire HANYA di main — service TIDAK PERNAH import adapter.
+**`wallet` sengaja TIDAK mengikuti pola itu**: dia bukan kontrak di atas backend yang
+bisa ditukar, dia PostgreSQL, dan pura-pura sebaliknya justru menyesatkan (§BAGIAN 3
+§wallet). Jangan "seragamkan" dengan menambah port di sana.
 
 ---
 
@@ -390,14 +445,43 @@ Firebase (project `avagenc`) berlaku untuk semua produk Avagenc, sekarang dan na
 Ledger double-entry rupiah per akun (`user:{uid}` + system `revenue`/`pending`),
 dipotong per agent run sesuai token usage.
 
-Post-paid: `biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop lalu
-`Charge` sekali per run via `defer` — satu transaksi `agent_run` (debit user + credit
-revenue, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/model/
-breakdown token/snapshot tarif) di header transaksi sekaligus jadi usage log. Biller
-sepackage dengan kontrak + endpoint usage supaya penulis dan pembaca `Receipt` tidak
-bisa drift (dan supaya tidak ada cycle `agent` ↔ `wallet`).
+**Billing hidup di `internal/agent`, pembukuan di `wallet` (ROOT), dan garis itu
+sengaja.** Menaksir harga sebuah model adalah urusan produk INI — makanya di
+`internal/`. Buku besarnya tidak pernah tahu apa yang dibayar dan memang diniatkan
+melayani produk Avagenc mana pun — makanya di root, sejajar `cmd/`, bukan di dalam
+`internal/`. Karena itu `Usage`/`Price`/`Run`/`Receipt` + `TxAgentRun` +
+`Biller.Charge` ada di `agent/biller.go`, dan `wallet` tidak punya satu pun tipe yang
+menyebut "run".
 
-Tarif `wallet.Price` (rupiah per juta token) di-inject eksplisit di main, bukan env:
+Post-paid: `agent/biller.go` mengakumulasi `event.UsageMetadata` di tiap drain loop
+lalu `Charge` sekali per run via `defer`. **Tiap file mendeklarasikan port-nya sendiri,
+seukuran yang dia pakai**: `Ledger` (`Transact` saja) di `biller.go` karena menagih itu
+menulis, dan `LedgerReader` (`Entries` saja) di `usage.go` karena melaporkan itu
+membaca — jadi Biller tidak bisa mengintip saldo dan endpoint usage tidak bisa
+membukukan, sekalipun keduanya di-wire dengan `*wallet.Ledger` yang sama. Kedua port
+itu juga yang bikin aritmetika uang bisa dites tanpa database (§1.5). Biller
+merakit sendiri satu transaksi `agent_run` (debit `user:{uid}:IDR` + credit
+`revenue:IDR`, SUM postings = 0) dengan metadata `Receipt` (agent/session/trigger/
+model/breakdown token/snapshot tarif) sekaligus jadi usage log.
+
+**`internal/agent` meng-import `wallet` secara langsung, dan itu SAH** — bukan fitur
+mengintip fitur tetangga, tapi aplikasi memakai library-nya sendiri (§BAGIAN 6 no. 4).
+Pernah dicoba menghilangkan import itu dengan port sempit `agent.Ledger` (`RecordRun`/
+`RunsSince`) plus adapter di package `internal/agent/wallet` — dan itu DIBATALKAN.
+Alasannya: edge-nya tidak hilang, cuma pindah ke package yang justru tidak akan dicari
+pembaca, dengan ongkos satu interface bernama `Ledger` yang bukan ledger (isinya nol
+data — cuma meneruskan ke ledger wallet yang sama) plus satu lapis pembungkus yang
+harus dibaca sebelum orang paham uangnya mendarat di mana. **Jangan ulangi.** Kalau
+suatu hari wallet benar-benar pindah ke balik panggilan jaringan, yang berubah adalah
+apa yang di-wire di main ke `agent.Ledger`/`agent.LedgerReader` — port itu sudah ada di
+sisi yang membutuhkannya, dan `Biller` tidak perlu tahu.
+
+`Biller` sepackage dengan `HandleToday` (`usage.go`) supaya penulis dan pembaca
+`Receipt` tidak bisa drift — itulah alasan endpoint `GET /wallet/usage/today` ikut
+pindah ke `agent` walau path-nya tetap di bawah `/wallet` (path adalah kontrak FE,
+bukan peta package).
+
+Tarif `agent.Price` (rupiah per juta token) di-inject eksplisit di main, bukan env:
 snapshot-nya tercatat di tiap transaksi, jadi ubah tarif = keputusan deploy.
 
 Gate `RequireBalance` (saldo > 0, habis → 402) di `/ava`, `/ava/voice`, `/ava/awaken`,
@@ -408,7 +492,7 @@ BOLEH hilang karena dana habis. Charge gagal = log, BUKAN 5xx; pakai
 Migrasi skema: goose di step `Migrate Wallet Database` (deploy.yaml, secret
 `WALLET_DB_URL`) SEBELUM deploy; boot hanya VALIDASI tabel ada, tidak pernah DDL.
 
-Top-up via Midtrans Snap ada lengkap di `internal/wallet/midtrans`: webhook
+Top-up via Midtrans Snap ada lengkap di `wallet/midtrans`: webhook
 diautentikasi signature SHA-512 LALU dikonfirmasi ke status API Core Midtrans sebelum
 membukukan — amount/status/currency diambil dari status API, BUKAN dari body, supaya
 server key yang bocor tidak bisa memalsukan pembukuan. **Saat ini di-comment out di
@@ -554,10 +638,21 @@ Semua WAJIB (fatal saat boot kalau kosong) kecuali yang ditandai.
 2. `go build ./... && go vet ./...` → bersih.
 3. `go test ./... -count=1` → lulus. Integration test wallet akan SKIP tanpa
    `WALLET_TEST_DB_URL` — itu normal, tapi laporkan sebagai SKIP, jangan sebagai lulus.
-4. Graf import masih forest — tidak ada package fitur yang import package fitur lain di
-   luar yang sudah ada (`agent/*` → `agent`, `wallet`;
-   `link/*` → `link`; adapter → kontrak induknya). Cek:
-   `for p in $(go list ./...); do go list -f '{{.ImportPath}} {{join .Imports " "}}' $p | tr ' ' '\n' | grep -c avagenc/chat; done`
+4. Graf import masih forest. Dua aturan, dan bedanya penting:
+   - **Antar package `internal/`: subpackage HANYA boleh import package induknya,
+     TITIK** (`agent/*` → `agent`, `link/*` → `link`, adapter → kontrak induknya). NOL
+     edge lintas fitur — `internal/agent` tidak boleh kenal `internal/session`, dst.
+     Dan **memindahkan edge lintas fitur ke subpackage baru BUKAN cara memenuhi aturan
+     ini**; itu cuma menyembunyikannya, sudah pernah dicoba lalu dibatalkan (lihat
+     BAGIAN 3 §wallet).
+   - **Import ke `wallet` (root) BUKAN edge lintas fitur** dan tidak dihitung: dia
+     library platform, bukan fitur sederajat. Arahnya wajib satu arah — `internal/*`
+     boleh import `wallet`, `wallet` TIDAK BOLEH import apa pun dari `internal/`. Kalau
+     wallet sampai perlu tahu isi `internal/`, dia berhenti jadi library dan aturan
+     ini yang dilanggar duluan.
+
+   Cek:
+   `for p in $(go list ./internal/... ./wallet/...); do go list -f '{{.ImportPath}} -> {{join .Imports " "}}' $p | tr ' ' '\n' | grep avagenc/chat; done`
    atau lebih terbaca, lihat tabel graf import di README.md dan bandingkan.
 5. Route baru: gate middleware-nya sudah benar DAN **urutannya** sudah benar?
 6. Kalau struktur/route/env berubah, file INI dan README.md ikut berubah di commit yang

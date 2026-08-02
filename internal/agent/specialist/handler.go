@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/avagenc/chat/internal/agent"
-	"github.com/avagenc/chat/internal/wallet"
 	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
 	apihttp "go.naturallyfunny.dev/api/http"
 	apitime "go.naturallyfunny.dev/api/time"
@@ -23,11 +22,11 @@ var RanByAvaInstruction string
 
 type Handler struct {
 	runner    *runner.Runner
-	biller    *wallet.Biller
+	biller    *agent.Biller
 	agentName string
 }
 
-func NewHandler(r *runner.Runner, b *wallet.Biller, agentName string) *Handler {
+func NewHandler(r *runner.Runner, b *agent.Biller, agentName string) *Handler {
 	return &Handler{runner: r, biller: b, agentName: agentName}
 }
 
@@ -68,9 +67,9 @@ func (h *Handler) HandleHuman(w http.ResponseWriter, r *http.Request) {
 		}),
 	)
 	// Charge on every exit path: tokens consumed before an error are spent too.
-	var usage wallet.Usage
+	var usage agent.Usage
 	defer func() {
-		if err := h.biller.Charge(r.Context(), userID, wallet.Run{Agent: h.agentName, Session: sessID, Trigger: "human"}, usage); err != nil {
+		if err := h.biller.Charge(r.Context(), userID, agent.Run{Agent: h.agentName, Session: sessID, Trigger: "human"}, usage); err != nil {
 			log.Printf("error: charge user %s for %s run: %v", userID, h.agentName, err)
 		}
 	}()

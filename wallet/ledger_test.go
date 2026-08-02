@@ -1,4 +1,4 @@
-package postgres
+package wallet
 
 // Integration test against a real PostgreSQL database, per the repo
 // convention (behavior over mocks). Skipped unless WALLET_TEST_DB_URL is
@@ -14,7 +14,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/avagenc/chat/internal/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -75,7 +74,7 @@ func mustBalance(t *testing.T, ledger *Ledger, accountID string) int64 {
 func TestLedger(t *testing.T) {
 	ledger, pool := newTestLedger(t)
 	ctx := context.Background()
-	alice := wallet.UserAccountID("alice", wallet.IDR)
+	alice := UserAccountID("alice", IDR)
 
 	// An account with no row reads as balance 0, not an error.
 	if got := mustBalance(t, ledger, alice); got != 0 {
@@ -83,13 +82,13 @@ func TestLedger(t *testing.T) {
 	}
 
 	// Top-up: credit alice against pending, with an idempotency ref.
-	txn, err := ledger.Transact(ctx, wallet.Spec{
-		Kind:     "topup",
+	txn, err := ledger.Transact(ctx, Spec{
+		Type:     "topup",
 		Ref:      "order-1",
 		Metadata: json.RawMessage(`{"source":"test"}`),
-		Postings: []wallet.Posting{
+		Postings: []Posting{
 			{AccountID: alice, Amount: 100_000_000},
-			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -100_000_000},
+			{AccountID: PendingAccountID(IDR), Amount: -100_000_000},
 		},
 	})
 	if err != nil {
@@ -101,21 +100,21 @@ func TestLedger(t *testing.T) {
 	if got := mustBalance(t, ledger, alice); got != 100_000_000 {
 		t.Fatalf("alice after topup = %d, want 100_000_000", got)
 	}
-	if got := mustBalance(t, ledger, wallet.PendingAccountID(wallet.IDR)); got != -100_000_000 {
+	if got := mustBalance(t, ledger, PendingAccountID(IDR)); got != -100_000_000 {
 		t.Fatalf("pending after topup = %d, want -100_000_000", got)
 	}
 
 	// Replaying the same ref rejects the whole transaction with the sentinel
 	// and writes nothing.
-	_, err = ledger.Transact(ctx, wallet.Spec{
-		Kind: "topup",
+	_, err = ledger.Transact(ctx, Spec{
+		Type: "topup",
 		Ref:  "order-1",
-		Postings: []wallet.Posting{
+		Postings: []Posting{
 			{AccountID: alice, Amount: 100_000_000},
-			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -100_000_000},
+			{AccountID: PendingAccountID(IDR), Amount: -100_000_000},
 		},
 	})
-	if !errors.Is(err, wallet.ErrDuplicateRef) {
+	if !errors.Is(err, ErrDuplicateRef) {
 		t.Fatalf("duplicate ref error = %v, want ErrDuplicateRef", err)
 	}
 	var txnCount int
@@ -128,12 +127,12 @@ func TestLedger(t *testing.T) {
 
 	// Usage charge: debit alice against revenue, receipt in metadata.
 	receipt := json.RawMessage(`{"agent":"ava","tokens":{"total":42}}`)
-	if _, err := ledger.Transact(ctx, wallet.Spec{
-		Kind:     "agent_run",
+	if _, err := ledger.Transact(ctx, Spec{
+		Type:     "agent_run",
 		Metadata: receipt,
-		Postings: []wallet.Posting{
+		Postings: []Posting{
 			{AccountID: alice, Amount: -30_000_000},
-			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 30_000_000},
+			{AccountID: RevenueAccountID(IDR), Amount: 30_000_000},
 		},
 	}); err != nil {
 		t.Fatalf("agent_run: %v", err)
@@ -141,13 +140,13 @@ func TestLedger(t *testing.T) {
 	if got := mustBalance(t, ledger, alice); got != 70_000_000 {
 		t.Fatalf("alice after charge = %d, want 70_000_000", got)
 	}
-	if got := mustBalance(t, ledger, wallet.RevenueAccountID(wallet.IDR)); got != 30_000_000 {
+	if got := mustBalance(t, ledger, RevenueAccountID(IDR)); got != 30_000_000 {
 		t.Fatalf("revenue after charge = %d, want 30_000_000", got)
 	}
 
 	// Entries: newest first, kind filter works, and each line carries its
 	// transaction's kind and metadata.
-	entries, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{Kind: "agent_run"})
+	entries, err := ledger.Entries(ctx, alice, EntriesQuery{Type: "agent_run"})
 	if err != nil {
 		t.Fatalf("entries by kind: %v", err)
 	}
@@ -172,14 +171,14 @@ func TestLedger(t *testing.T) {
 	if decoded.Agent != "ava" || decoded.Tokens.Total != 42 {
 		t.Fatalf("charge metadata = %s, want agent ava with 42 total tokens", charge.Metadata)
 	}
-	all, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{})
+	all, err := ledger.Entries(ctx, alice, EntriesQuery{})
 	if err != nil {
 		t.Fatalf("entries: %v", err)
 	}
-	if len(all) != 2 || all[0].Kind != "agent_run" || all[1].Kind != "topup" {
+	if len(all) != 2 || all[0].Type != "agent_run" || all[1].Type != "topup" {
 		t.Fatalf("entries order/kinds wrong: %+v", all)
 	}
-	limited, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{Limit: 1})
+	limited, err := ledger.Entries(ctx, alice, EntriesQuery{Limit: 1})
 	if err != nil {
 		t.Fatalf("entries limit: %v", err)
 	}
@@ -188,11 +187,11 @@ func TestLedger(t *testing.T) {
 	}
 
 	// Post-paid: a debit may push the user balance negative and must not fail.
-	if _, err := ledger.Transact(ctx, wallet.Spec{
-		Kind: "agent_run",
-		Postings: []wallet.Posting{
+	if _, err := ledger.Transact(ctx, Spec{
+		Type: "agent_run",
+		Postings: []Posting{
 			{AccountID: alice, Amount: -200_000_000},
-			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 200_000_000},
+			{AccountID: RevenueAccountID(IDR), Amount: 200_000_000},
 		},
 	}); err != nil {
 		t.Fatalf("overdraft charge: %v", err)
@@ -229,17 +228,17 @@ func TestConstraintRejectsUnbalancedSQL(t *testing.T) {
 	_, pool := newTestLedger(t)
 	ctx := context.Background()
 
-	for name, postings := range map[string][]wallet.Posting{
+	for name, postings := range map[string][]Posting{
 		"single sided": {
-			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
+			{AccountID: RevenueAccountID(IDR), Amount: 1_000_000},
 		},
 		"does not sum to zero": {
-			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
-			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -999_999},
+			{AccountID: RevenueAccountID(IDR), Amount: 1_000_000},
+			{AccountID: PendingAccountID(IDR), Amount: -999_999},
 		},
 		"balanced across two currencies": {
-			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
-			{AccountID: wallet.RevenueAccountID("USD"), Amount: -1_000_000},
+			{AccountID: RevenueAccountID(IDR), Amount: 1_000_000},
+			{AccountID: RevenueAccountID("USD"), Amount: -1_000_000},
 		},
 	} {
 		if _, err := pool.Exec(ctx,
@@ -286,26 +285,26 @@ func TestConstraintRejectsUnbalancedSQL(t *testing.T) {
 func TestTransactRejects(t *testing.T) {
 	ledger, pool := newTestLedger(t)
 	ctx := context.Background()
-	alice := wallet.UserAccountID("alice", wallet.IDR)
+	alice := UserAccountID("alice", IDR)
 
-	for name, spec := range map[string]wallet.Spec{
-		"empty kind": {Postings: []wallet.Posting{
-			{AccountID: alice, Amount: -1}, {AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1},
+	for name, spec := range map[string]Spec{
+		"empty kind": {Postings: []Posting{
+			{AccountID: alice, Amount: -1}, {AccountID: RevenueAccountID(IDR), Amount: 1},
 		}},
-		"single posting": {Kind: "topup", Postings: []wallet.Posting{
+		"single posting": {Type: "topup", Postings: []Posting{
 			{AccountID: alice, Amount: 1},
 		}},
-		"zero amount": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: alice, Amount: 0}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: 0},
+		"zero amount": {Type: "topup", Postings: []Posting{
+			{AccountID: alice, Amount: 0}, {AccountID: PendingAccountID(IDR), Amount: 0},
 		}},
-		"empty account": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: "", Amount: 1}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
+		"empty account": {Type: "topup", Postings: []Posting{
+			{AccountID: "", Amount: 1}, {AccountID: PendingAccountID(IDR), Amount: -1},
 		}},
-		"unbalanced": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: alice, Amount: 2}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
+		"unbalanced": {Type: "topup", Postings: []Posting{
+			{AccountID: alice, Amount: 2}, {AccountID: PendingAccountID(IDR), Amount: -1},
 		}},
-		"unseeded system account": {Kind: "settlement", Postings: []wallet.Posting{
-			{AccountID: "bank", Amount: 1}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
+		"unseeded system account": {Type: "settlement", Postings: []Posting{
+			{AccountID: "bank", Amount: 1}, {AccountID: PendingAccountID(IDR), Amount: -1},
 		}},
 	} {
 		if _, err := ledger.Transact(ctx, spec); err == nil {

@@ -161,14 +161,14 @@ Parked, wired but commented out in `main.go` pending a product decision:
 
 | Module | Owns | Port it defines | Adapter |
 | --- | --- | --- | --- |
-| `internal/agent` | the three ADK state-delta keys, and the base instruction template every agent composes into | — | — |
+| `internal/agent` | the three ADK state-delta keys, the base instruction template every agent composes into, what a run costs, and how that cost is booked | `agent.Ledger` (write) and `agent.LedgerReader` (read), one per file that needs one | satisfied directly by `*wallet.Ledger` |
 | `internal/agent/ava` | the orchestrator's entry points and its sub-agent adapter | `ava.SubAgent` (satisfied here) | — |
 | `internal/agent/specialist` | the specialist entry point, shared by all three | — | — |
 | `internal/identity` | who the caller is | — | Firebase Admin SDK, API key |
 | `internal/session` | **episodic** memory: the thread and its messages | `session.Store` | `session/zep` |
 | `internal/knowledge` | **semantic** memory: the user's knowledge graph | `knowledge.Store` | `knowledge/zep` |
 | `internal/postera` | **prospective** memory: future self-messages | — (the SDK is the orchestrator) | — |
-| `internal/wallet` | double-entry ledger, per-run billing, balance gate | `wallet.Ledger` | `wallet/postgres`, `wallet/midtrans` |
+| `wallet` | the double-entry ledger *and* its PostgreSQL implementation, plus the balance gate — and nothing about what is being sold | — (`Ledger` is a struct, deliberately) | — (`midtrans/` is a top-up slice, not an adapter) |
 | `internal/link` | HMAC-signed OAuth state, shared by real integrations | — | — |
 | `internal/link/{gworkspace,spotify,tuya}` | one account-linking flow each | `Connector` (per slice) | the vendor SDK client |
 
@@ -234,7 +234,7 @@ curl -sS https://<host>/ava \
 
 The wallet is charged either way: a run that burned tokens and *then* failed is still
 billed, because the tokens were really spent
-([`biller.go:96`](internal/wallet/biller.go)).
+([`internal/agent/biller.go`](internal/agent/biller.go)).
 
 ## Modular monolith: what is actually enforced
 
@@ -253,41 +253,60 @@ below.
 
 ### Horizontally: the in-repo import graph
 
-One testable property: **the internal import graph is a forest of independent trees that
-meet only at `main`.** That is checkable, so here it is, generated from the source:
+One testable property: **the feature packages under `internal/` are a forest of
+independent trees that meet only at `main`, standing on one shared library at the module
+root.** That is checkable, so here it is, generated from the source:
 
 ```
-cmd/http                        -> agent  agent/ava  agent/specialist  identity
-                                   knowledge  knowledge/zep  link/gworkspace
+cmd/http                        -> agent  agent/ava  agent/specialist
+                                   identity  knowledge  knowledge/zep  link/gworkspace
                                    link/spotify  link/tuya  postera  session
-                                   session/zep  wallet  wallet/postgres
+                                   session/zep  wallet
 
-internal/agent                  -> (nothing)
+wallet                          -> (nothing)      ← library, at the module root
+
+internal/agent                  -> wallet
 internal/identity               -> (nothing)
 internal/knowledge              -> (nothing)
 internal/link                   -> (nothing)
 internal/postera                -> (nothing)
 internal/session                -> (nothing)
-internal/wallet                 -> (nothing)
 
-internal/agent/ava              -> agent  wallet
-internal/agent/specialist       -> agent  wallet
+internal/agent/ava              -> agent
+internal/agent/specialist       -> agent
 internal/knowledge/zep          -> knowledge
 internal/session/zep            -> session
-internal/wallet/postgres        -> wallet
-internal/wallet/midtrans        -> wallet
 internal/link/gworkspace        -> link
 internal/link/spotify           -> link
 internal/link/tuya              -> (nothing)
+wallet/midtrans                 -> wallet
 ```
 
 Read it and the discipline is visible without trusting a word of prose:
 
-- **Seven feature packages import nothing internal at all.** `session` does not know
-  `knowledge` exists. `wallet` does not know it is billing agents.
+- **No feature package imports another feature package. None.** `session` does not know
+  `knowledge` exists, and `agent` does not know `session` does.
 - **Every adapter points at exactly one contract, its own parent.** No adapter imports
   another adapter, and no contract imports its adapter — so swapping Zep for something
   else means writing a sibling package, not editing a service.
+- **`wallet` is not in `internal/`, and that placement is the argument.** The rule this
+  repo holds itself to is one question: *is this package meant to be used across
+  products?* Memory was once public at the module root and was moved under `internal/`
+  precisely because the answer was no. For the ledger the answer is yes — it is a
+  double-entry book that never learns what is being sold — so it sits at the root as a
+  library. `internal/agent` importing it is therefore not a feature reaching sideways
+  into another feature; it is the application using its own library, and the arrow only
+  ever points that way: `wallet` imports nothing from `internal/`.
+- **Billing lives once, and each file asks for only what it uses.** `ava` and
+  `specialist` used to import the wallet themselves, which put ledger vocabulary in the
+  middle of three request paths; now the leaves see only their own parent and charging
+  happens in one place ([`internal/agent/biller.go`](internal/agent/biller.go)). Each of
+  the two files that touches the ledger declares its own port, sized to what it does —
+  `Ledger` is `Transact` alone, `LedgerReader` is `Entries` alone — so the endpoint that
+  reports usage cannot book a charge and the biller cannot
+  read a balance. Routing the edge through an extra port and an adapter package was
+  tried and reverted: it did not remove the edge, it only moved it somewhere a reader
+  would not look for it, at the cost of an interface named after a thing it was not.
 - **`ava` and `specialist` do not import each other**, even though Ava runs
   specialists. The adapter that makes a specialist usable as `ava.SubAgent` lives on
   the *consumer's* side, in
@@ -471,7 +490,7 @@ which is the one arrangement this repo makes impossible.
         └───────────────▲───────────────────────────────────────────────┘
                         │ implemented by (import points UP, not down)
         ┌───────────────┴───────────────────────────────────────────────┐
-        │  adapter — session/zep · knowledge/zep · wallet/postgres      │
+        │  adapter — session/zep · knowledge/zep                        │
         │  translate vendor types & errors into domain types & sentinels│
         └───────────────┬───────────────────────────────────────────────┘
                         │
@@ -738,15 +757,28 @@ A real double-entry ledger, not a balance column. The essentials:
   credit is precisely the bug double-entry exists to prevent. Charging a run is
   `{user: −n, revenue: +n}`; a top-up is `{user: +n, pending: −n}`; a future P2P
   transfer is two user accounts — same contract, no new method.
+- **A balance is never stored.** `accounts` holds identity — type, owner, currency — and
+  the row whose lock serializes writers. The amount itself is only ever `SUM(entries)`.
+  A stored balance would be a second copy of what the journal already says, and SQL has
+  no constraint that can hold a column equal to an aggregate of another table, so its
+  correctness could only ever be audited on a schedule, never enforced. Derived, it has
+  nothing to drift from and there is nothing to audit.
+- **The currency is part of the account ID** (`user:{uid}:IDR`, `revenue:IDR`). Sum-zero
+  is only meaningful inside one currency, so a second currency is a second account, never
+  a second balance on one account, and conversion is a transaction through an FX account
+  rather than a posting that spans both. Landed while the journal was still empty because
+  the column is cheap at any time but the naming is not.
 - **`int64` micro-rupiah, credit-positive.** Rates are quoted in rupiah per million
   tokens, so `micros = rate × tokens` is exact integer arithmetic with no division and
   no rounding on the write path. Asset-like system accounts read *negative*; that is
   double-entry working, not a bug, and it is stated in the package doc so nobody
   "corrects" it.
 - **The transaction is the usage log.** There is no second table. `GET
-  /wallet/usage/today` reads the user's entries and computes cost from `entry.Amount`,
-  not from the receipt JSON — so the number stays right even if the receipt shape
-  drifts.
+  /wallet/usage/today` reads the user's charges and computes cost from the recorded
+  amount, not from the receipt JSON — so the number stays right even if the receipt
+  shape drifts. Writer and reader of that JSON sit in one package
+  ([`internal/agent`](internal/agent)) precisely so they cannot drift apart, which is
+  why the endpoint is served from the agent side even though its path says `/wallet`.
 - **Post-paid, and a charge can push a balance negative.** The gate only asks for
   balance > 0 *before* a run, because the cost is unknowable until the run ends. The
   alternative — refusing to record a charge for tokens already burned — would silently
@@ -754,20 +786,22 @@ A real double-entry ledger, not a balance column. The essentials:
 - **Concurrency by deterministic lock order.** `Transact` sorts postings by account ID
   before taking row locks, so concurrent transactions touching the same accounts queue
   instead of deadlocking. The known cost: every charge briefly serializes on the
-  `revenue` row. Postgres row locks are microseconds; the levers if that ever binds
-  (sharded revenue sub-accounts, or deriving system balances from `SUM(entries)`) are
-  deliberately deferred rather than pre-built.
+  `revenue` row. Postgres row locks are microseconds; the lever if that ever binds
+  (sharded revenue sub-accounts) is deliberately deferred rather than pre-built.
 - **Migrations run in the deploy pipeline, never at boot.** The runtime holds DML
   privileges only. `NewLedger` *validates* the tables exist and fails startup with a
   clear message if a deploy skipped the migration step — a boot failure instead of a
   mysterious first-charge failure.
 
-Invariants any reviewer can check directly in SQL: `SUM(amount) = 0` per `txn_id`;
-`accounts.balance = SUM(entries.amount)` per account; `SUM(balance)` over all accounts
-= 0.
+One invariant carries the rest: `SUM(amount) = 0` per `txn_id`, from which a journal
+summing to zero overall follows. It is not merely checkable in SQL — a deferred
+constraint trigger enforces it at commit, for hand-written SQL as much as for the
+adapter, which is the difference between an invariant a reviewer can verify and one a
+writer cannot break. The adapter validates the same rule before it opens a transaction,
+to fail with a useful error rather than a constraint violation.
 
 **Midtrans top-up is complete, tested, and intentionally not wired.** The slice in
-[`internal/wallet/midtrans`](internal/wallet/midtrans) implements Snap checkout and the
+[`wallet/midtrans`](wallet/midtrans) implements Snap checkout and the
 payment webhook — including the part most implementations get wrong: a signed
 notification is *never* trusted for the amount. The signature only proves authenticity
 while the server key is secret, so every notification claiming success is re-confirmed
@@ -903,12 +937,12 @@ Why separate modules rather than one repo with packages:
 - **It forces the generic/specific split to be real.** Wanting to reach from `postera`
   into an Avagenc type is not a code-review conversation; it is a dependency cycle the
   toolchain refuses. The pressure that keeps the SDKs clean is mechanical.
-- **`internal/` says the rest is not for sharing.** Every package in *this* repo is
-  under `internal/` — deliberately, even for well-shaped contracts like `wallet.Ledger`.
-  A public package at the root of an application module is an API commitment to nobody:
-  sharing across products needs a separate module regardless, so exporting here would
-  buy zero reuse and cost a promise to keep. When the wallet earns extraction, it earns
-  a module.
+- **`internal/` says the rest is not for sharing.** The test is intent, not tidiness:
+  *is this package meant to be used across products?* For the agents, memory, linking
+  and identity the answer is no, so they sit under `internal/` — memory was once public
+  at the root and was moved in for exactly that reason. For the ledger the answer is
+  yes, so `wallet` sits at the root. A public package at the root of an application
+  module is an API commitment, and one is worth making only where the intent is real.
 
 **Trade-off, stated plainly:** multiple modules mean a change spanning an SDK and the
 app is two commits, two tags, and a `go get`. That is real friction, accepted because
@@ -1410,7 +1444,7 @@ while the failure mode of the alternative is "everyone's data is readable".
   turns); it is not free, and it has not been needed.
 - **No metrics or tracing surface.** Cloud Run's request logs plus `log.Printf` are
   what exist. Instrumenting before there is a question to answer would be decoration.
-- **No refunds in policy**, though `refund` exists as a ledger kind from day one so a
+- **No refunds in policy**, though `refund` exists as a ledger transaction type from day one so a
   gateway dispute can be recorded correctly if policy changes.
 
 ## External constraints
@@ -1442,20 +1476,20 @@ Everything below was run in this working tree; the numbers are observed, not est
 $ go build ./... && go vet ./...          # clean, no findings
 $ gofmt -l .                              # no output
 $ go test ./... -count=1 -cover        # packages without tests omitted
-ok  github.com/avagenc/chat/internal/knowledge/zep    0.549s  coverage:  29.1% of statements
-ok  github.com/avagenc/chat/internal/link             0.307s  coverage: 100.0% of statements
-ok  github.com/avagenc/chat/internal/wallet           0.335s  coverage:  38.2% of statements
-ok  github.com/avagenc/chat/internal/wallet/midtrans  0.939s  coverage:  10.2% of statements
-ok  github.com/avagenc/chat/internal/wallet/postgres  0.615s  coverage:   0.0% of statements
+ok  github.com/avagenc/chat/internal/agent            1.718s  coverage:  52.5% of statements
+ok  github.com/avagenc/chat/internal/knowledge/zep    0.640s  coverage:  29.1% of statements
+ok  github.com/avagenc/chat/internal/link             1.102s  coverage: 100.0% of statements
+ok  github.com/avagenc/chat/wallet/midtrans           1.883s  coverage:  10.2% of statements
+ok  github.com/avagenc/chat/wallet                    1.346s  coverage:   0.0% of statements
 ```
 
-**Read those last two numbers correctly.** The wallet's Postgres and Midtrans suites are
+**Read those last two numbers correctly.** The wallet's ledger and Midtrans suites are
 integration tests against a real database, per the repo convention of testing behaviour
 rather than mocks. They **skip** unless `WALLET_TEST_DB_URL` points at a disposable
 database — which is why they report near-zero coverage above. With a database:
 
 ```bash
-WALLET_TEST_DB_URL='postgres://…/wallet_test' go test ./internal/wallet/... -count=1
+WALLET_TEST_DB_URL='postgres://…/wallet_test' go test ./wallet/... -count=1
 ```
 
 Each run drops the wallet tables and re-applies `migrations/` from scratch, so it must
@@ -1466,7 +1500,7 @@ What the always-running tests actually pin down:
 | Package | Covered | How |
 | --- | --- | --- |
 | `internal/link` | 100% — `SignState`/`VerifyState` | table-driven: round trip, wrong owner (the CSRF case), cross-integration replay, wrong secret, expiry boundary, rewritten expiry, tampered mac, four malformed inputs |
-| `internal/wallet` | `Charge` 95.5%, `Usage.Add` 100% | the billing arithmetic against an in-memory `Ledger` — a second real implementation of the port, not a mock: cached-token split, tool-use prompt, the negative-input clamp, the one-micro floor, receipt provenance, survival of a cancelled context, error wrapping |
+| `internal/agent` | `Charge` 95.2%, `Usage.Add` 100% | the billing arithmetic *and* the postings it writes, against an in-memory ledger satisfying both ports — a real implementation, not a mock: it enforces the balanced-postings rule and answers reads from what it stored. Covered: cached-token split, tool-use prompt, the negative-input clamp, the one-micro floor, receipt provenance, survival of a cancelled context, error wrapping, and the balanced debit/credit pair under type `agent_run` |
 | `internal/knowledge/zep` | `drain` 100% | page draining: short page, exact page multiple, cursor advance, a backend that ignores the cursor, the runaway page cap, mid-drain error yielding no partial graph |
 
 The uncovered 4.5% of `Charge` is its `json.Marshal` failure branch, unreachable for a
@@ -1499,7 +1533,12 @@ internal/agent/
   ava/subagent.go                 specialist → ava.SubAgent, on the consumer's side
   ava/instruction.go + *.txt      Ava's kind, channel, and run-layer instructions
   specialist/handler.go           the direct-address entry point, shared by all three
-  specialist/*.txt                specialist kind + run-layer instructions
+  specialist/instruction.go + *.txt  specialist kind + run-layer instructions
+  biller.go                       token usage → one run charge, booked as a balanced
+                                  agent_run pair through a write-only port
+  usage.go                        GET /wallet/usage/today — the receipt's reader,
+                                  beside its writer so the shape cannot drift,
+                                  through a read-only port of its own
 
 internal/identity/                firebase.go (ID token) · apikey.go (constant-time)
 internal/session/                 episodic: service.go (port + types + ownership),
@@ -1507,16 +1546,19 @@ internal/session/                 episodic: service.go (port + types + ownership
 internal/knowledge/               semantic: same shape; the adapter drains pages
   zep/
 internal/postera/handler.go       prospective: HTTP glue over the SDK, no local service
-internal/wallet/
-  ledger.go                       the double-entry port + domain types + sentinels
-  biller.go                       token usage → one balanced transaction
-  guard.go                        RequireBalance → 402
-  handler.go                      balance + today's usage
-  postgres/                       pgx adapter, migrations/, schema validation at boot
-  midtrans/                       top-up slice — complete, tested, parked
 internal/link/
   state.go                        HMAC OAuth state, shared because it was found shared
   gworkspace/ spotify/ tuya/      one slice per integration
+
+wallet/                           at the module ROOT, not under internal/ — the one
+                                  package here meant to serve any Avagenc product
+  ledger.go                       domain types + sentinels + the Ledger itself — a
+                                  pgx struct, not an interface: its guarantees are
+                                  SQL, so there is nothing to substitute
+  migrations.go migrations/       goose schema, applied in the deploy pipeline
+  guard.go                        RequireBalance → 402
+  handler.go                      balance
+  midtrans/                       top-up slice — complete, tested, parked
 
 CLAUDE.md                         working agreement: conventions, and the prohibitions
                                   that produced this structure
@@ -1531,9 +1573,10 @@ In this order, and it is short:
 
 1. **[`cmd/http/main.go`](cmd/http/main.go), top to bottom.** It is the map. By the end
    you know every component, every route, and every middleware order in the system.
-2. **[`internal/wallet/ledger.go`](internal/wallet/ledger.go).** The clearest example of
-   the repo's contract-and-adapter shape: a port, its domain types, its sentinel, and a
-   package doc that explains the sign convention before you can misread it.
+2. **[`wallet/ledger.go`](wallet/ledger.go).** The money, and the clearest example of
+   an abstraction deliberately *not* taken: domain types, a sentinel, and a concrete
+   PostgreSQL ledger, under a package doc that explains both the sign convention and
+   why there is no interface here before you can misread either.
 3. **[`internal/agent/ava/handler.go`](internal/agent/ava/handler.go) and
    [`subagent.go`](internal/agent/ava/subagent.go).** The same run, entered two ways —
    this is where the four-door model becomes concrete.

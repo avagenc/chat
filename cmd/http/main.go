@@ -25,10 +25,9 @@ import (
 	internalpostera "github.com/avagenc/chat/internal/postera"
 	"github.com/avagenc/chat/internal/session"
 	sessionzep "github.com/avagenc/chat/internal/session/zep"
-	internalwallet "github.com/avagenc/chat/internal/wallet"
+	"github.com/avagenc/chat/wallet"
 
-	// walletmidtrans "github.com/avagenc/chat/internal/wallet/midtrans"
-	walletpostgres "github.com/avagenc/chat/internal/wallet/postgres"
+	// walletmidtrans "github.com/avagenc/chat/wallet/midtrans"
 	zepclient "github.com/getzep/zep-go/v3/client"
 	zepoption "github.com/getzep/zep-go/v3/option"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -91,11 +90,12 @@ func main() {
 		log.Fatalf("fatal: init wallet db pool: %v", err)
 	}
 	defer walletDBPool.Close()
-	walletLedger, err := walletpostgres.NewLedger(context.Background(), walletDBPool)
+	walletLedger, err := wallet.NewLedger(context.Background(), walletDBPool)
 	if err != nil {
 		log.Fatalf("fatal: init wallet ledger: %v", err)
 	}
-	walletHandler := internalwallet.NewHandler(walletLedger)
+	walletHandler := wallet.NewHandler(walletLedger)
+	agentUsageHandler := agent.NewUsageHandler(walletLedger)
 	firebaseProjectID := os.Getenv("FIREBASE_PROJECT_ID")
 	if firebaseProjectID == "" {
 		log.Fatal("fatal: FIREBASE_PROJECT_ID is required")
@@ -118,7 +118,7 @@ func main() {
 	mux.Handle(
 		"GET /wallet/usage/today",
 		firebaseAuthenticator.Authenticate(apitime.HTTPWithZone(
-			http.HandlerFunc(walletHandler.HandleTodayUsage),
+			http.HandlerFunc(agentUsageHandler.HandleToday),
 		)),
 	)
 	// midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
@@ -210,13 +210,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("fatal: build zee runner: %v", err)
 	}
-	biller := internalwallet.NewBiller(walletLedger, internalwallet.Price{
+	biller := agent.NewBiller(walletLedger, agent.Price{
 		InputPerMTok:  10_000,
 		CachedPerMTok: 2_500,
 		OutputPerMTok: 42_000,
 	})
 	zeeHandler := specialist.NewHandler(zeeRunner, biller, zeeAgent.Name())
-	walletGuard := internalwallet.NewGuard(walletLedger)
+	walletGuard := wallet.NewGuard(walletLedger)
 	mux.Handle(
 		"POST /zee",
 		firebaseAuthenticator.Authenticate(walletGuard.RequireBalance(apitime.HTTPWithZone(

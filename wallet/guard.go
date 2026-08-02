@@ -12,10 +12,10 @@ import (
 // gates the rupiah account because that is the one agent runs are billed in;
 // a second currency would need to say which balance buys what.
 type Guard struct {
-	ledger Ledger
+	ledger *Ledger
 }
 
-func NewGuard(l Ledger) *Guard {
+func NewGuard(l *Ledger) *Guard {
 	return &Guard{ledger: l}
 }
 

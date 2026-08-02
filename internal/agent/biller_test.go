@@ -1,74 +1,111 @@
-package wallet
+package agent
 
 // Charging is the one place where token counts turn into money, so its
-// arithmetic and its posting shape are pinned here. The Ledger below is a real
-// in-memory implementation of the port — the same contract postgres implements,
-// exercised for its actual behaviour — not a mock with recorded expectations.
-// The postgres adapter's own guarantees (atomicity, locking, idempotency) are
-// covered by postgres/ledger_test.go against a real database.
+// arithmetic, the postings it writes, and the receipt it carries are all
+// pinned here. The ledger below is a real in-memory implementation of the two
+// ports this package declares, not a double: it enforces the
+// balanced-postings rule and answers reads from what it stored, so a charge is
+// observed by its effect rather than by a recorded expectation. It is also why
+// those ports exist at all — the wallet's own Ledger is a concrete PostgreSQL
+// struct, so without them this arithmetic could only be tested against a
+// database.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
+
+	"github.com/avagenc/chat/wallet"
 )
 
-// memLedger is an in-memory wallet.Ledger. It keeps the balanced-postings rule
-// the port promises, so a spec that would be rejected by postgres is rejected
-// here too.
 type memLedger struct {
-	transactions []Spec
-	refs         map[string]bool
-	err          error
-	ctxErr       error
+	entries []*wallet.Entry
+	err     error
+	ctxErr  error
 }
-
-func newMemLedger() *memLedger { return &memLedger{refs: map[string]bool{}} }
 
 func (m *memLedger) Balance(ctx context.Context, accountID string) (int64, error) {
 	var balance int64
-	for _, spec := range m.transactions {
-		for _, p := range spec.Postings {
-			if p.AccountID == accountID {
-				balance += p.Amount
-			}
+	for _, e := range m.entries {
+		if e.AccountID == accountID {
+			balance += e.Amount
 		}
 	}
 	return balance, nil
 }
 
-func (m *memLedger) Transact(ctx context.Context, spec Spec) (*Transaction, error) {
+func (m *memLedger) Transact(ctx context.Context, spec wallet.Spec) (*wallet.Transaction, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	m.ctxErr = ctx.Err()
 	var sum int64
 	for _, p := range spec.Postings {
 		sum += p.Amount
 	}
-	if sum != 0 {
-		return nil, errors.New("unbalanced postings")
+	if len(spec.Postings) < 2 || sum != 0 {
+		return nil, fmt.Errorf("wallet: spec of %d postings sums to %d, want at least 2 summing to 0", len(spec.Postings), sum)
 	}
-	if spec.Ref != "" {
-		if m.refs[spec.Ref] {
-			return nil, ErrDuplicateRef
+	m.ctxErr = ctx.Err()
+	txn := &wallet.Transaction{
+		ID:        fmt.Sprintf("txn-%d", len(m.entries)),
+		Type:      spec.Type,
+		Ref:       spec.Ref,
+		Metadata:  spec.Metadata,
+		CreatedAt: time.Now(),
+	}
+	for _, p := range spec.Postings {
+		balance, _ := m.Balance(ctx, p.AccountID)
+		entry := &wallet.Entry{
+			TransactionID: txn.ID,
+			AccountID:     p.AccountID,
+			Amount:        p.Amount,
+			BalanceAfter:  balance + p.Amount,
+			Type:          spec.Type,
+			Ref:           spec.Ref,
+			Metadata:      spec.Metadata,
+			CreatedAt:     txn.CreatedAt,
 		}
-		m.refs[spec.Ref] = true
+		m.entries = append(m.entries, entry)
+		txn.Entries = append(txn.Entries, entry)
 	}
-	m.transactions = append(m.transactions, spec)
-	return &Transaction{Kind: spec.Kind, Ref: spec.Ref, Metadata: spec.Metadata}, nil
+	return txn, nil
 }
 
-func (m *memLedger) Entries(ctx context.Context, accountID string, q EntriesQuery) ([]*Entry, error) {
-	return nil, nil
+func (m *memLedger) Entries(ctx context.Context, accountID string, q wallet.EntriesQuery) ([]*wallet.Entry, error) {
+	var out []*wallet.Entry
+	for _, e := range m.entries {
+		if e.AccountID != accountID {
+			continue
+		}
+		if q.Type != "" && e.Type != q.Type {
+			continue
+		}
+		if !q.Since.IsZero() && e.CreatedAt.Before(q.Since) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
-var _ Ledger = (*memLedger)(nil)
+var (
+	_ Ledger       = (*memLedger)(nil)
+	_ LedgerReader = (*memLedger)(nil)
+)
+
+// charges returns what was booked against the user's own account, which is
+// where a run charge lands. Amounts stay as the ledger signed them.
+func (m *memLedger) charges(userID string) []*wallet.Entry {
+	out, _ := m.Entries(context.Background(), wallet.UserAccountID(userID, wallet.IDR), wallet.EntriesQuery{})
+	return out
+}
 
 // testPrice mirrors the shape of the rates wired in main: rupiah per million
 // tokens, so one token costs exactly its rate in micro-rupiah.
@@ -122,38 +159,22 @@ func TestBillerCharge(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ledger := newMemLedger()
+			ledger := &memLedger{}
 			biller := NewBiller(ledger, testPrice)
 
 			if err := biller.Charge(context.Background(), "user-1", Run{Agent: "ava", Session: "chat-user-1", Trigger: "human"}, tt.usage); err != nil {
 				t.Fatalf("Charge() error = %v", err)
 			}
-			if len(ledger.transactions) != 1 {
-				t.Fatalf("Charge() wrote %d transactions, want 1", len(ledger.transactions))
+			charges := ledger.charges("user-1")
+			if len(charges) != 1 {
+				t.Fatalf("Charge() recorded %d charges, want 1", len(charges))
 			}
-			spec := ledger.transactions[0]
-			if spec.Kind != KindAgentRun {
-				t.Errorf("kind = %q, want %q", spec.Kind, KindAgentRun)
-			}
-			if len(spec.Postings) != 2 {
-				t.Fatalf("got %d postings, want 2", len(spec.Postings))
-			}
-			user, revenue := spec.Postings[0], spec.Postings[1]
-			if user.AccountID != UserAccountID("user-1") {
-				t.Errorf("debit account = %q, want %q", user.AccountID, UserAccountID("user-1"))
-			}
-			if revenue.AccountID != AccountRevenue {
-				t.Errorf("credit account = %q, want %q", revenue.AccountID, AccountRevenue)
-			}
-			if user.Amount != -tt.wantMicros {
-				t.Errorf("user posting = %d micros, want %d", user.Amount, -tt.wantMicros)
-			}
-			if user.Amount+revenue.Amount != 0 {
-				t.Errorf("postings sum to %d, want 0", user.Amount+revenue.Amount)
+			if got := -charges[0].Amount; got != tt.wantMicros {
+				t.Errorf("charge = %d micros, want %d", got, tt.wantMicros)
 			}
 
 			var receipt Receipt
-			if err := json.Unmarshal(spec.Metadata, &receipt); err != nil {
+			if err := json.Unmarshal(charges[0].Metadata, &receipt); err != nil {
 				t.Fatalf("unmarshal receipt: %v", err)
 			}
 			if receipt.Tokens.Input != tt.wantInput {
@@ -171,38 +192,39 @@ func TestBillerCharge(t *testing.T) {
 
 // A run that consumed nothing is not a free run to record — it is not a run.
 func TestBillerChargeSkipsEmptyUsage(t *testing.T) {
-	ledger := newMemLedger()
+	ledger := &memLedger{}
 	biller := NewBiller(ledger, testPrice)
 
 	if err := biller.Charge(context.Background(), "user-1", Run{Agent: "zee"}, Usage{}); err != nil {
 		t.Fatalf("Charge() error = %v", err)
 	}
-	if len(ledger.transactions) != 0 {
-		t.Errorf("Charge() wrote %d transactions for empty usage, want 0", len(ledger.transactions))
+	if len(ledger.entries) != 0 {
+		t.Errorf("Charge() recorded %d entries for empty usage, want 0", len(ledger.entries))
 	}
 }
 
-// The transaction doubles as the usage log, so a charge that rounds to nothing
-// still has to be recorded — a floor of one micro keeps the row.
+// The charge doubles as the usage log, so one that rounds to nothing still has
+// to be recorded — a floor of one micro keeps the row.
 func TestBillerChargeFloorsAtOneMicro(t *testing.T) {
-	ledger := newMemLedger()
+	ledger := &memLedger{}
 	biller := NewBiller(ledger, Price{InputPerMTok: 0, CachedPerMTok: 0, OutputPerMTok: 0})
 
 	if err := biller.Charge(context.Background(), "user-1", Run{Agent: "zee"}, Usage{Prompt: 10, Total: 10}); err != nil {
 		t.Fatalf("Charge() error = %v", err)
 	}
-	if len(ledger.transactions) != 1 {
-		t.Fatalf("Charge() wrote %d transactions, want 1", len(ledger.transactions))
+	charges := ledger.charges("user-1")
+	if len(charges) != 1 {
+		t.Fatalf("Charge() recorded %d charges, want 1", len(charges))
 	}
-	if got := ledger.transactions[0].Postings[0].Amount; got != -1 {
-		t.Errorf("user posting = %d micros, want -1", got)
+	if got := -charges[0].Amount; got != 1 {
+		t.Errorf("charge = %d micros, want 1", got)
 	}
 }
 
-// The run's metadata is what the usage endpoint reads back, so it has to carry
-// the whole provenance of the charge.
+// The receipt is what the usage endpoint reads back, so it has to carry the
+// whole provenance of the charge.
 func TestBillerChargeRecordsRunContext(t *testing.T) {
-	ledger := newMemLedger()
+	ledger := &memLedger{}
 	biller := NewBiller(ledger, testPrice)
 	run := Run{Agent: "zee", Session: "chat-user-1", Trigger: "ava"}
 
@@ -210,7 +232,7 @@ func TestBillerChargeRecordsRunContext(t *testing.T) {
 		t.Fatalf("Charge() error = %v", err)
 	}
 	var receipt Receipt
-	if err := json.Unmarshal(ledger.transactions[0].Metadata, &receipt); err != nil {
+	if err := json.Unmarshal(ledger.charges("user-1")[0].Metadata, &receipt); err != nil {
 		t.Fatalf("unmarshal receipt: %v", err)
 	}
 	if receipt.Agent != run.Agent || receipt.Session != run.Session || receipt.Trigger != run.Trigger {
@@ -222,9 +244,9 @@ func TestBillerChargeRecordsRunContext(t *testing.T) {
 }
 
 // The tokens were spent whether or not the client is still waiting, so the
-// debit must outlive a cancelled request context.
+// charge must outlive a cancelled request context.
 func TestBillerChargeSurvivesCancellation(t *testing.T) {
-	ledger := newMemLedger()
+	ledger := &memLedger{}
 	biller := NewBiller(ledger, testPrice)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -232,11 +254,49 @@ func TestBillerChargeSurvivesCancellation(t *testing.T) {
 	if err := biller.Charge(ctx, "user-1", Run{Agent: "ava"}, Usage{Prompt: 100, Total: 100}); err != nil {
 		t.Fatalf("Charge() error = %v", err)
 	}
-	if len(ledger.transactions) != 1 {
-		t.Fatalf("Charge() wrote %d transactions, want 1", len(ledger.transactions))
+	if got := len(ledger.charges("user-1")); got != 1 {
+		t.Fatalf("Charge() recorded %d charges, want 1", got)
 	}
 	if ledger.ctxErr != nil {
 		t.Errorf("ledger saw ctx.Err() = %v, want nil", ledger.ctxErr)
+	}
+}
+
+// A charge is money moving, so it is booked as a balanced pair: the user is
+// debited exactly what revenue is credited, under a kind the wallet stores
+// but never interprets.
+func TestBillerChargePostsBalancedPair(t *testing.T) {
+	ledger := &memLedger{}
+	biller := NewBiller(ledger, testPrice)
+
+	if err := biller.Charge(context.Background(), "user-1", Run{Agent: "ava"}, Usage{Prompt: 1_000, Total: 1_000}); err != nil {
+		t.Fatalf("Charge() error = %v", err)
+	}
+	if len(ledger.entries) != 2 {
+		t.Fatalf("Charge() wrote %d entries, want 2", len(ledger.entries))
+	}
+	want := int64(1_000 * 10_000)
+	debit, err := ledger.Balance(context.Background(), wallet.UserAccountID("user-1", wallet.IDR))
+	if err != nil {
+		t.Fatalf("Balance() error = %v", err)
+	}
+	if debit != -want {
+		t.Errorf("user account = %d micros, want %d", debit, -want)
+	}
+	credit, err := ledger.Balance(context.Background(), wallet.RevenueAccountID(wallet.IDR))
+	if err != nil {
+		t.Fatalf("Balance() error = %v", err)
+	}
+	if credit != want {
+		t.Errorf("revenue account = %d micros, want %d", credit, want)
+	}
+	for _, e := range ledger.entries {
+		if e.Type != TxAgentRun {
+			t.Errorf("entry kind = %q, want %q", e.Type, TxAgentRun)
+		}
+		if len(e.Metadata) == 0 {
+			t.Errorf("entry on %s carries no receipt", e.AccountID)
+		}
 	}
 }
 
@@ -272,8 +332,7 @@ func TestUsageAdd(t *testing.T) {
 
 func TestBillerChargeWrapsLedgerError(t *testing.T) {
 	wantErr := errors.New("ledger down")
-	ledger := newMemLedger()
-	ledger.err = wantErr
+	ledger := &memLedger{err: wantErr}
 	biller := NewBiller(ledger, testPrice)
 
 	err := biller.Charge(context.Background(), "user-1", Run{Agent: "ava"}, Usage{Prompt: 100, Total: 100})

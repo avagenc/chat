@@ -1,8 +1,7 @@
 // Package zep implements the parent session package's Store port on top of
 // Zep, mapping Zep's types and not-found errors onto session's. It lives
-// beside its contract, like wallet/postgres beside wallet: swapping providers
-// means writing a sibling adapter under internal/session, not editing session
-// itself. (The agent side has its own Zep surface, adkzep — this package only
+// beside its contract: swapping providers means writing a sibling adapter
+// under internal/session, not editing session itself. (The agent side has its own Zep surface, adkzep — this package only
 // covers episodic memory.)
 package zep
 
