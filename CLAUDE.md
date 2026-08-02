@@ -126,10 +126,18 @@ tambahkan comment jenis lain.
 ## 1.5 Testing
 
 - **Tidak ada mock testing.** Test perilaku nyata, bukan ekspektasi terhadap dobel.
-- **Integration test untuk yang menyentuh infrastruktur.** `wallet` dan
-  `wallet/midtrans` dites terhadap PostgreSQL sungguhan, SKIP kalau
-  `WALLET_TEST_DB_URL` tidak di-set. Tiap run DROP tabel dan apply ulang migrations —
-  arahkan ke database sekali pakai, JANGAN ke database bersama.
+- **`wallet` SENGAJA belum punya test, karena masih EKSPERIMENTAL.** Skema jurnalnya
+  masih bisa berubah dan **payment gateway-nya belum ditetapkan** — Midtrans sudah
+  ditulis lengkap tapi masih di-comment out di `main.go` menunggu keputusan produk,
+  dan kalau gateway-nya ganti, alur top-up beserta test-nya ikut dibuang. Menulis
+  integration test di atas bentuk yang belum final = menulis test untuk dihapus. Suite
+  lamanya (ledger + midtrans) sudah DIHAPUS, bukan dibiarkan SKIP selamanya.
+  Konsekuensinya harus disadari, bukan dilupakan: **jalur SQL, migration, constraint
+  trigger sum-zero, idempotensi `ref`, urutan row lock, dan webhook Midtrans TIDAK
+  diverifikasi apa pun.** Kalau menyentuh salah satunya, verifikasi manual terhadap
+  database sekali pakai — jangan mengaku aman karena `go test` hijau. **Begitu skema
+  dan gateway ditetapkan, integration test wajib ditulis ulang** — ini penundaan,
+  bukan keputusan permanen.
 - **Table-driven test untuk logika murni** yang bisa jalan tanpa infrastruktur:
   `internal/link` (HMAC state), `internal/agent` (aritmetika billing),
   `internal/knowledge/zep` (drain pagination).
@@ -278,12 +286,11 @@ wallet/                     DI ROOT, BUKAN internal/ — satu-satunya package ap
                             adanya). Dijalankan goose di pipeline deploy dengan
                             `-dir wallet/migrations` — runtime hanya VALIDASI tabel
                             ada, tidak pernah DDL.
-  ledger_test.go            integration test terhadap PostgreSQL sungguhan (§1.5)
   guard.go                  Guard.RequireBalance middleware → 402. Tetap di sini, BUKAN
                             di agent: dia cuma butuh Balance dan tidak kenal agent.
   handler.go                HandleBalance (GET /wallet)
   midtrans/                 top-up via Midtrans Snap, satu subpackage per integrasi
-                            (pola link). LENGKAP + ADA TEST, tapi SAAT INI DI-COMMENT
+                            (pola link). LENGKAP tapi TANPA TEST dan SAAT INI DI-COMMENT
                             OUT di main.go menunggu keputusan produk.
 ```
 
@@ -628,7 +635,6 @@ Semua WAJIB (fatal saat boot kalau kosong) kecuali yang ditandai.
 | `THIRD_PARTY_API_KEY` | API key klien pihak ketiga — autentikasi `POST /ava/voice` |
 | `WALLET_DB_URL` | PostgreSQL connection string untuk wallet — database KHUSUS wallet (tabel tanpa prefix), TERPISAH dari postera |
 | `MIDTRANS_SERVER_KEY` / `MIDTRANS_BASE_URL` | **parked** — hanya perlu kalau top-up diaktifkan lagi |
-| `WALLET_TEST_DB_URL` | **test only** — database sekali pakai untuk integration test wallet |
 
 ---
 
@@ -636,8 +642,8 @@ Semua WAJIB (fatal saat boot kalau kosong) kecuali yang ditandai.
 
 1. `gofmt -l .` → tidak ada output.
 2. `go build ./... && go vet ./...` → bersih.
-3. `go test ./... -count=1` → lulus. Integration test wallet akan SKIP tanpa
-   `WALLET_TEST_DB_URL` — itu normal, tapi laporkan sebagai SKIP, jangan sebagai lulus.
+3. `go test ./... -count=1` → lulus. Ingat cakupannya: `wallet` TIDAK punya test sama
+   sekali (§1.5), jadi hijau di sini bukan bukti jalur SQL-nya benar.
 4. Graf import masih forest. Dua aturan, dan bedanya penting:
    - **Antar package `internal/`: subpackage HANYA boleh import package induknya,
      TITIK** (`agent/*` → `agent`, `link/*` → `link`, adapter → kontrak induknya). NOL

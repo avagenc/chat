@@ -800,14 +800,14 @@ adapter, which is the difference between an invariant a reviewer can verify and 
 writer cannot break. The adapter validates the same rule before it opens a transaction,
 to fail with a useful error rather than a constraint violation.
 
-**Midtrans top-up is complete, tested, and intentionally not wired.** The slice in
+**Midtrans top-up is complete and intentionally not wired.** The slice in
 [`wallet/midtrans`](wallet/midtrans) implements Snap checkout and the
 payment webhook — including the part most implementations get wrong: a signed
 notification is *never* trusted for the amount. The signature only proves authenticity
 while the server key is secret, so every notification claiming success is re-confirmed
 against Midtrans' Core status API, and the ledger is written from what that API
 reports. Its wiring in `main.go` is commented out pending a product decision on paid
-top-up; the code and its integration test remain so that turning it on is uncommenting,
+top-up; the code remains so that turning it on is uncommenting,
 not rewriting.
 
 ## Trust boundaries
@@ -1476,26 +1476,25 @@ Everything below was run in this working tree; the numbers are observed, not est
 $ go build ./... && go vet ./...          # clean, no findings
 $ gofmt -l .                              # no output
 $ go test ./... -count=1 -cover        # packages without tests omitted
-ok  github.com/avagenc/chat/internal/agent            1.718s  coverage:  52.5% of statements
-ok  github.com/avagenc/chat/internal/knowledge/zep    0.640s  coverage:  29.1% of statements
-ok  github.com/avagenc/chat/internal/link             1.102s  coverage: 100.0% of statements
-ok  github.com/avagenc/chat/wallet/midtrans           1.883s  coverage:  10.2% of statements
-ok  github.com/avagenc/chat/wallet                    1.346s  coverage:   0.0% of statements
+ok  github.com/avagenc/chat/internal/agent            0.710s  coverage:  52.5% of statements
+ok  github.com/avagenc/chat/internal/knowledge/zep    1.272s  coverage:  29.1% of statements
+ok  github.com/avagenc/chat/internal/link             1.770s  coverage: 100.0% of statements
 ```
 
-**Read those last two numbers correctly.** The wallet's ledger and Midtrans suites are
-integration tests against a real database, per the repo convention of testing behaviour
-rather than mocks. They **skip** unless `WALLET_TEST_DB_URL` points at a disposable
-database — which is why they report near-zero coverage above. With a database:
+**`wallet` has no tests, and that is a deliberate deferral rather than an oversight.**
+The slice is still experimental: the journal schema can still move, and **the payment
+gateway is not settled** — Midtrans is written in full but commented out in `main.go`
+pending a product decision, and a different gateway would take the top-up flow and its
+tests with it. An integration suite over a shape that is not final is a suite written
+to be thrown away, so the one that existed was deleted rather than left skipping on
+every machine without a database. What that costs, stated plainly: the SQL, the
+migrations, the deferred sum-zero constraint trigger, `ref` idempotency, lock ordering,
+and the webhook's signature-then-status-API confirmation are verified by **nothing**.
+Touching any of them means checking by hand against a disposable database; a green
+`go test` says nothing about them. Once the schema and the gateway are fixed, the
+integration tests come back — this is a postponement, not a position.
 
-```bash
-WALLET_TEST_DB_URL='postgres://…/wallet_test' go test ./wallet/... -count=1
-```
-
-Each run drops the wallet tables and re-applies `migrations/` from scratch, so it must
-never be aimed at a shared database.
-
-What the always-running tests actually pin down:
+What the tests that do exist pin down:
 
 | Package | Covered | How |
 | --- | --- | --- |
@@ -1514,6 +1513,10 @@ struct of scalars.
   is verified by exercising the running service.
 - `session/zep` and the field-mapping half of `knowledge/zep` are untested; they are
   straight struct translation, and a fake Zep would test the fake.
+- **`wallet` is untested end to end**, and that is the largest gap on this list because
+  it is the one that handles money. It is deliberate while the slice is experimental
+  and the payment gateway is unsettled; writing it back is the first task once those
+  are fixed, not a nice-to-have.
 - There is no CI test job. [`deploy.yaml`](.github/workflows/deploy.yaml) validates
   configuration, builds, migrates, and deploys — it does not run `go test`. Adding that
   gate is the single highest-value change to this pipeline.
@@ -1558,7 +1561,7 @@ wallet/                           at the module ROOT, not under internal/ — th
   migrations.go migrations/       goose schema, applied in the deploy pipeline
   guard.go                        RequireBalance → 402
   handler.go                      balance
-  midtrans/                       top-up slice — complete, tested, parked
+  midtrans/                       top-up slice — complete, untested, parked
 
 CLAUDE.md                         working agreement: conventions, and the prohibitions
                                   that produced this structure
