@@ -249,7 +249,7 @@ func (h *Handler) HandleNotification(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if status.Currency != "" && status.Currency != "IDR" {
+	if status.Currency != "" && status.Currency != string(wallet.IDR) {
 		// Booking a non-IDR amount into IDR accounts would corrupt the ledger.
 		log.Printf("error: midtrans notification for order %s: currency %s, cannot book", n.OrderID, status.Currency)
 		apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "unsupported currency"})
@@ -290,8 +290,8 @@ func (h *Handler) HandleNotification(w http.ResponseWriter, r *http.Request) {
 		Ref:      n.OrderID,
 		Metadata: metadata,
 		Postings: []wallet.Posting{
-			{AccountID: wallet.UserAccountID(userID), Amount: micros},
-			{AccountID: wallet.AccountPending, Amount: -micros},
+			{AccountID: wallet.UserAccountID(userID, wallet.IDR), Amount: micros},
+			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -micros},
 		},
 	})
 	// ErrDuplicateRef = a retry, or settlement arriving after capture was

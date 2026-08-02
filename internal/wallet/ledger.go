@@ -1,11 +1,18 @@
 // Package wallet is the money feature of the app, one vertical slice: the
 // double-entry ledger contract (this file) implemented by the postgres
-// subpackage, the biller that turns an agent run's token usage into a
-// balanced transaction (biller.go), the balance gate on agent routes
-// (guard.go), and the read endpoints the UI consumes (handler.go).
+// subpackage, the balance gate on agent routes (guard.go), and the balance
+// the UI reads (handler.go).
 //
-// Amounts are int64 micro-rupiah (1 IDR = 1_000_000 micros) — exact integer
-// arithmetic, no floats. The sign convention is credit-positive: a positive
+// It knows nothing about what its consumers sell. Turning an agent run's
+// token usage into a charge lives with the agents (internal/agent), because
+// pricing a model is this product's concern while the books are meant to
+// serve every Avagenc product — the same reason this package is the piece
+// that could one day move behind a network call on its own.
+//
+// Amounts are int64 micros: one millionth of the account's currency unit
+// (1 IDR = 1_000_000 micros) — exact integer arithmetic, no floats. The unit
+// is currency-agnostic; which currency a number is in comes from the account
+// it posts to. The sign convention is credit-positive: a positive
 // amount moves money into an account, a negative amount moves it out, and a
 // transaction's postings always sum to zero. User and revenue balances read
 // positive; asset-like system accounts (pending) accumulate the negative
@@ -22,23 +29,54 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
-// UserAccountID constructs the deterministic ledger account ID for a
-// Firebase UID. User accounts are implicit: no create endpoint, the first
-// posting creates the row, a missing row reads as balance 0.
-func UserAccountID(userID string) string { return "user:" + userID }
+// Currency is the unit an account is denominated in, ISO 4217. It lives on
+// the account rather than the posting because the sum-zero invariant is only
+// meaningful within one currency: a transaction's postings must all share
+// one, and converting between two is a transaction through an FX account,
+// never a posting that spans both.
+type Currency string
 
-// AccountRevenue is the system account credited by every usage debit.
+const IDR Currency = "IDR"
+
+// UserAccountID constructs the deterministic ledger account ID for a Firebase
+// UID. User accounts are implicit: no create endpoint, the first posting
+// creates the row, a missing row reads as balance 0. One account per
+// currency, so the currency is part of the ID — a user holding two currencies
+// holds two accounts, never one account with two balances.
+func UserAccountID(userID string, currency Currency) string {
+	return "user:" + userID + ":" + string(currency)
+}
+
+// ParseUserAccountID splits an ID built by UserAccountID, and reports false
+// for system accounts. It lives beside its constructor so the ID format is
+// written down once; the adapter needs the parts to create the row implicitly
+// on first posting. Splitting at the last colon is safe because Firebase UIDs
+// are alphanumeric.
+func ParseUserAccountID(accountID string) (userID string, currency Currency, ok bool) {
+	rest, ok := strings.CutPrefix(accountID, "user:")
+	if !ok {
+		return "", "", false
+	}
+	i := strings.LastIndex(rest, ":")
+	if i <= 0 || i == len(rest)-1 {
+		return "", "", false
+	}
+	return rest[:i], Currency(rest[i+1:]), true
+}
+
+// RevenueAccountID is the system account credited by every usage debit.
 // System accounts are seeded by migration, never auto-created; the full
 // chart of accounts lives in WALLET.md.
-const AccountRevenue = "revenue"
+func RevenueAccountID(currency Currency) string { return "revenue:" + string(currency) }
 
-// AccountPending is the system account debited by every top-up: money the
+// PendingAccountID is the system account debited by every top-up: money the
 // payment gateway holds that has not settled to a bank account yet.
 // Asset-like, so it reads negative — the credit-positive double-entry mirror.
-const AccountPending = "pending"
+func PendingAccountID(currency Currency) string { return "pending:" + string(currency) }
 
 // Kind labels what a transaction is (e.g. "topup", "agent_run", "refund").
 // Open set: consumers define their own kinds, the wallet never interprets

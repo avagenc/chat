@@ -159,7 +159,7 @@ func mustBalance(t *testing.T, h *Handler, accountID string) int64 {
 
 func TestHandleNotification(t *testing.T) {
 	h, fake := newTestHandler(t)
-	alice := wallet.UserAccountID("alice")
+	alice := wallet.UserAccountID("alice", wallet.IDR)
 	orderID, err := newOrderID("alice")
 	if err != nil {
 		t.Fatalf("newOrderID: %v", err)
@@ -174,7 +174,7 @@ func TestHandleNotification(t *testing.T) {
 	if got := mustBalance(t, h, alice); got != 50_000_000_000 {
 		t.Errorf("user balance after settlement: got %d, want 50_000_000_000", got)
 	}
-	if got := mustBalance(t, h, wallet.AccountPending); got != -50_000_000_000 {
+	if got := mustBalance(t, h, wallet.PendingAccountID(wallet.IDR)); got != -50_000_000_000 {
 		t.Errorf("pending balance after settlement: got %d, want -50_000_000_000", got)
 	}
 

@@ -1,13 +1,20 @@
 // Package postgres implements the wallet.Ledger port on PostgreSQL — a
-// dedicated wallet database, so tables carry no prefix. It keeps a
-// materialized balance per account (accounts) beside the append-only journal
-// (transactions header + entries lines): Transact writes the header, then
-// walks the postings in account-ID order — a deterministic lock order, so
-// concurrent transactions touching the same accounts queue instead of
-// deadlocking — adjusting each account row under its row lock and recording
-// the entry with the exact balance_after returned under that lock.
-// Invariants: SUM(entries.amount) == 0 per txn_id, and accounts.balance ==
-// SUM(entries.amount) per account.
+// dedicated wallet database, so tables carry no prefix. The append-only
+// journal (transactions header + entries lines) is the only place a balance
+// exists: Transact writes the header, then walks the postings in account-ID
+// order — a deterministic lock order, so concurrent transactions touching the
+// same accounts queue instead of deadlocking — locking each account row
+// before summing its entries, so the balance_after it records is the one that
+// row lock guarantees.
+//
+// A balance column would be a second copy of what the entries already say,
+// and nothing in SQL can hold a column equal to an aggregate of another
+// table — so its correctness could only ever be audited, never enforced.
+// Derived, it has nothing to drift from. The remaining invariant,
+// SUM(entries.amount) == 0 per txn_id, is enforced by a deferred constraint
+// trigger (see migrations/) rather than by the validation below: this adapter
+// checks it to fail early with a useful error, the database checks it so no
+// writer can skip the check at all.
 //
 // The schema lives in migrations/ and is applied by goose in the deploy
 // pipeline (.github/workflows/deploy.yaml), never here: the runtime only
@@ -58,12 +65,9 @@ func NewLedger(ctx context.Context, db DB) (*Ledger, error) {
 func (l *Ledger) Balance(ctx context.Context, accountID string) (int64, error) {
 	var balance int64
 	err := l.db.QueryRow(ctx,
-		`SELECT balance FROM accounts WHERE id = $1`,
+		`SELECT COALESCE(SUM(amount), 0) FROM entries WHERE account_id = $1`,
 		accountID,
 	).Scan(&balance)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
 	if err != nil {
 		return 0, fmt.Errorf("postgres: balance %s: %w", accountID, err)
 	}
@@ -121,10 +125,18 @@ func (l *Ledger) Transact(ctx context.Context, spec wallet.Spec) (*wallet.Transa
 	txn.CreatedAt = txn.CreatedAt.UTC()
 
 	for _, p := range postings {
-		balanceAfter, err := applyPosting(ctx, tx, p)
-		if err != nil {
+		if err := lockAccount(ctx, tx, p.AccountID); err != nil {
 			return nil, fmt.Errorf("postgres: transact %s: %w", spec.Kind, err)
 		}
+		var balance int64
+		err = tx.QueryRow(ctx,
+			`SELECT COALESCE(SUM(amount), 0) FROM entries WHERE account_id = $1`,
+			p.AccountID,
+		).Scan(&balance)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: transact %s: balance %s: %w", spec.Kind, p.AccountID, err)
+		}
+		balanceAfter := balance + p.Amount
 		entry := &wallet.Entry{
 			TransactionID: txn.ID,
 			AccountID:     p.AccountID,
@@ -153,38 +165,32 @@ func (l *Ledger) Transact(ctx context.Context, spec wallet.Spec) (*wallet.Transa
 	return txn, nil
 }
 
-// applyPosting adds p.Amount to the account balance under its row lock and
-// returns the new balance. User accounts are implicit — created by their
-// first posting; system accounts are seeded by migration, so posting to a
-// missing one is a wiring bug, not a case to auto-heal.
-func applyPosting(ctx context.Context, tx pgx.Tx, p wallet.Posting) (int64, error) {
-	var balance int64
-	if userID, ok := strings.CutPrefix(p.AccountID, "user:"); ok {
-		err := tx.QueryRow(ctx,
-			`INSERT INTO accounts (id, type, user_id, balance) VALUES ($1, 'user', $2, $3)
-			ON CONFLICT (id) DO UPDATE
-				SET balance = accounts.balance + EXCLUDED.balance, updated_at = now()
-			RETURNING balance`,
-			p.AccountID, userID, p.Amount,
-		).Scan(&balance)
+// lockAccount takes the account's row lock, which is what serializes the
+// entry sums that follow it. User accounts are implicit — created by their
+// first posting, and the conflicting upsert locks the row just as an update
+// would; system accounts are seeded by migration, so posting to a missing one
+// is a wiring bug, not a case to auto-heal.
+func lockAccount(ctx context.Context, tx pgx.Tx, accountID string) error {
+	if userID, currency, ok := wallet.ParseUserAccountID(accountID); ok {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO accounts (id, type, user_id, currency) VALUES ($1, 'user', $2, $3)
+			ON CONFLICT (id) DO UPDATE SET updated_at = now()`,
+			accountID, userID, string(currency),
+		)
 		if err != nil {
-			return 0, fmt.Errorf("account %s: %w", p.AccountID, err)
+			return fmt.Errorf("account %s: %w", accountID, err)
 		}
-		return balance, nil
+		return nil
 	}
-	err := tx.QueryRow(ctx,
-		`UPDATE accounts SET balance = balance + $2, updated_at = now()
-		WHERE id = $1
-		RETURNING balance`,
-		p.AccountID, p.Amount,
-	).Scan(&balance)
+	var id string
+	err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, fmt.Errorf("account %s: system account not seeded by migration", p.AccountID)
+		return fmt.Errorf("account %s: system account not seeded by migration", accountID)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("account %s: %w", p.AccountID, err)
+		return fmt.Errorf("account %s: %w", accountID, err)
 	}
-	return balance, nil
+	return nil
 }
 
 // metadataParam maps empty metadata to NULL instead of invalid empty JSON.

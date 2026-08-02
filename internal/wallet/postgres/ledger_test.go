@@ -75,7 +75,7 @@ func mustBalance(t *testing.T, ledger *Ledger, accountID string) int64 {
 func TestLedger(t *testing.T) {
 	ledger, pool := newTestLedger(t)
 	ctx := context.Background()
-	alice := wallet.UserAccountID("alice")
+	alice := wallet.UserAccountID("alice", wallet.IDR)
 
 	// An account with no row reads as balance 0, not an error.
 	if got := mustBalance(t, ledger, alice); got != 0 {
@@ -89,7 +89,7 @@ func TestLedger(t *testing.T) {
 		Metadata: json.RawMessage(`{"source":"test"}`),
 		Postings: []wallet.Posting{
 			{AccountID: alice, Amount: 100_000_000},
-			{AccountID: "pending", Amount: -100_000_000},
+			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -100_000_000},
 		},
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestLedger(t *testing.T) {
 	if got := mustBalance(t, ledger, alice); got != 100_000_000 {
 		t.Fatalf("alice after topup = %d, want 100_000_000", got)
 	}
-	if got := mustBalance(t, ledger, "pending"); got != -100_000_000 {
+	if got := mustBalance(t, ledger, wallet.PendingAccountID(wallet.IDR)); got != -100_000_000 {
 		t.Fatalf("pending after topup = %d, want -100_000_000", got)
 	}
 
@@ -112,7 +112,7 @@ func TestLedger(t *testing.T) {
 		Ref:  "order-1",
 		Postings: []wallet.Posting{
 			{AccountID: alice, Amount: 100_000_000},
-			{AccountID: "pending", Amount: -100_000_000},
+			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -100_000_000},
 		},
 	})
 	if !errors.Is(err, wallet.ErrDuplicateRef) {
@@ -129,11 +129,11 @@ func TestLedger(t *testing.T) {
 	// Usage charge: debit alice against revenue, receipt in metadata.
 	receipt := json.RawMessage(`{"agent":"ava","tokens":{"total":42}}`)
 	if _, err := ledger.Transact(ctx, wallet.Spec{
-		Kind:     wallet.KindAgentRun,
+		Kind:     "agent_run",
 		Metadata: receipt,
 		Postings: []wallet.Posting{
 			{AccountID: alice, Amount: -30_000_000},
-			{AccountID: wallet.AccountRevenue, Amount: 30_000_000},
+			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 30_000_000},
 		},
 	}); err != nil {
 		t.Fatalf("agent_run: %v", err)
@@ -141,13 +141,13 @@ func TestLedger(t *testing.T) {
 	if got := mustBalance(t, ledger, alice); got != 70_000_000 {
 		t.Fatalf("alice after charge = %d, want 70_000_000", got)
 	}
-	if got := mustBalance(t, ledger, wallet.AccountRevenue); got != 30_000_000 {
+	if got := mustBalance(t, ledger, wallet.RevenueAccountID(wallet.IDR)); got != 30_000_000 {
 		t.Fatalf("revenue after charge = %d, want 30_000_000", got)
 	}
 
 	// Entries: newest first, kind filter works, and each line carries its
 	// transaction's kind and metadata.
-	entries, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{Kind: wallet.KindAgentRun})
+	entries, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{Kind: "agent_run"})
 	if err != nil {
 		t.Fatalf("entries by kind: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entries: %v", err)
 	}
-	if len(all) != 2 || all[0].Kind != wallet.KindAgentRun || all[1].Kind != "topup" {
+	if len(all) != 2 || all[0].Kind != "agent_run" || all[1].Kind != "topup" {
 		t.Fatalf("entries order/kinds wrong: %+v", all)
 	}
 	limited, err := ledger.Entries(ctx, alice, wallet.EntriesQuery{Limit: 1})
@@ -189,10 +189,10 @@ func TestLedger(t *testing.T) {
 
 	// Post-paid: a debit may push the user balance negative and must not fail.
 	if _, err := ledger.Transact(ctx, wallet.Spec{
-		Kind: wallet.KindAgentRun,
+		Kind: "agent_run",
 		Postings: []wallet.Posting{
 			{AccountID: alice, Amount: -200_000_000},
-			{AccountID: wallet.AccountRevenue, Amount: 200_000_000},
+			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 200_000_000},
 		},
 	}); err != nil {
 		t.Fatalf("overdraft charge: %v", err)
@@ -201,8 +201,9 @@ func TestLedger(t *testing.T) {
 		t.Fatalf("alice after overdraft = %d, want -130_000_000", got)
 	}
 
-	// Ledger invariants: every transaction sums to zero, every materialized
-	// balance matches its entries, and the whole ledger sums to zero.
+	// Ledger invariants: every transaction sums to zero, and so does the whole
+	// journal. There is no third invariant to check any more — the balance a
+	// stored column could diverge from is now read straight from the entries.
 	var broken int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM (SELECT txn_id FROM entries GROUP BY txn_id HAVING SUM(amount) <> 0) b`,
@@ -212,19 +213,8 @@ func TestLedger(t *testing.T) {
 	if broken != 0 {
 		t.Fatalf("%d transactions do not sum to zero", broken)
 	}
-	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM accounts a
-		LEFT JOIN (SELECT account_id, SUM(amount) s FROM entries GROUP BY account_id) e
-			ON a.id = e.account_id
-		WHERE a.balance <> COALESCE(e.s, 0)`,
-	).Scan(&broken); err != nil {
-		t.Fatalf("account invariant query: %v", err)
-	}
-	if broken != 0 {
-		t.Fatalf("%d accounts diverge from their entries", broken)
-	}
 	var total int64
-	if err := pool.QueryRow(ctx, `SELECT SUM(balance) FROM accounts`).Scan(&total); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount), 0) FROM entries`).Scan(&total); err != nil {
 		t.Fatalf("global invariant query: %v", err)
 	}
 	if total != 0 {
@@ -232,29 +222,90 @@ func TestLedger(t *testing.T) {
 	}
 }
 
+// TestConstraintRejectsUnbalancedSQL writes past the adapter entirely: this is
+// the guarantee the deferred trigger exists for, and the adapter's own
+// validation cannot demonstrate it.
+func TestConstraintRejectsUnbalancedSQL(t *testing.T) {
+	_, pool := newTestLedger(t)
+	ctx := context.Background()
+
+	for name, postings := range map[string][]wallet.Posting{
+		"single sided": {
+			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
+		},
+		"does not sum to zero": {
+			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
+			{AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -999_999},
+		},
+		"balanced across two currencies": {
+			{AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1_000_000},
+			{AccountID: wallet.RevenueAccountID("USD"), Amount: -1_000_000},
+		},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO accounts (id, type, currency) VALUES ('revenue:USD', 'system', 'USD')
+			ON CONFLICT DO NOTHING`,
+		); err != nil {
+			t.Fatalf("%s: seed usd account: %v", name, err)
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("%s: begin: %v", name, err)
+		}
+		var txnID string
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO transactions (kind) VALUES ('handwritten') RETURNING id`,
+		).Scan(&txnID); err != nil {
+			tx.Rollback(ctx)
+			t.Fatalf("%s: header: %v", name, err)
+		}
+		for _, p := range postings {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO entries (txn_id, account_id, amount, balance_after) VALUES ($1, $2, $3, 0)`,
+				txnID, p.AccountID, p.Amount,
+			); err != nil {
+				tx.Rollback(ctx)
+				t.Fatalf("%s: entry %s: %v", name, p.AccountID, err)
+			}
+		}
+		if err := tx.Commit(ctx); err == nil {
+			t.Errorf("%s: commit succeeded, want the constraint to reject it", name)
+		}
+		tx.Rollback(ctx)
+	}
+
+	var entries int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entries`).Scan(&entries); err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	if entries != 0 {
+		t.Fatalf("rejected writes left %d entries behind", entries)
+	}
+}
+
 func TestTransactRejects(t *testing.T) {
 	ledger, pool := newTestLedger(t)
 	ctx := context.Background()
-	alice := wallet.UserAccountID("alice")
+	alice := wallet.UserAccountID("alice", wallet.IDR)
 
 	for name, spec := range map[string]wallet.Spec{
 		"empty kind": {Postings: []wallet.Posting{
-			{AccountID: alice, Amount: -1}, {AccountID: wallet.AccountRevenue, Amount: 1},
+			{AccountID: alice, Amount: -1}, {AccountID: wallet.RevenueAccountID(wallet.IDR), Amount: 1},
 		}},
 		"single posting": {Kind: "topup", Postings: []wallet.Posting{
 			{AccountID: alice, Amount: 1},
 		}},
 		"zero amount": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: alice, Amount: 0}, {AccountID: "pending", Amount: 0},
+			{AccountID: alice, Amount: 0}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: 0},
 		}},
 		"empty account": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: "", Amount: 1}, {AccountID: "pending", Amount: -1},
+			{AccountID: "", Amount: 1}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
 		}},
 		"unbalanced": {Kind: "topup", Postings: []wallet.Posting{
-			{AccountID: alice, Amount: 2}, {AccountID: "pending", Amount: -1},
+			{AccountID: alice, Amount: 2}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
 		}},
 		"unseeded system account": {Kind: "settlement", Postings: []wallet.Posting{
-			{AccountID: "bank", Amount: 1}, {AccountID: "pending", Amount: -1},
+			{AccountID: "bank", Amount: 1}, {AccountID: wallet.PendingAccountID(wallet.IDR), Amount: -1},
 		}},
 	} {
 		if _, err := ledger.Transact(ctx, spec); err == nil {

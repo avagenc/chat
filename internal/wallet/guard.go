@@ -8,7 +8,9 @@ import (
 )
 
 // Guard gates agent routes on wallet balance. Post-paid model: starting a run
-// only requires balance > 0; the debit after the run may dip negative.
+// only requires balance > 0; the debit after the run may dip negative. It
+// gates the rupiah account because that is the one agent runs are billed in;
+// a second currency would need to say which balance buys what.
 type Guard struct {
 	ledger Ledger
 }
@@ -24,7 +26,7 @@ func (g *Guard) RequireBalance(next http.Handler) http.Handler {
 			apihttp.WriteProblem(w, http.StatusUnauthorized, map[string]any{"detail": "missing user identity"})
 			return
 		}
-		balance, err := g.ledger.Balance(r.Context(), UserAccountID(userID))
+		balance, err := g.ledger.Balance(r.Context(), UserAccountID(userID, IDR))
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusInternalServerError, map[string]any{"detail": "balance check failed"})
 			return
