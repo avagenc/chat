@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apitime "go.naturallyfunny.dev/api/time"
-	apiuser "go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	apitime "go.trueardian.com/api/time"
+	apiuser "go.trueardian.com/api/user"
 
 	"github.com/avagenc/chat/wallet"
 )

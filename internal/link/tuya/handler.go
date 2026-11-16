@@ -11,16 +11,13 @@ import (
 	"errors"
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
-	tuya "go.naturallyfunny.dev/tuya"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
+	"go.trueardian.com/tuya/appaccount"
 )
 
-// Connector is the slice of the Tuya client this handler needs: resolve the
-// owner's linked account, or report that none is linked via
-// tuya.ErrAccountNotLinked. *tuya.Client satisfies it.
 type Connector interface {
-	Account(ctx context.Context, owner string) (tuya.Account, error)
+	Get(ctx context.Context, owner string) (appaccount.Account, error)
 }
 
 // Handler is the HTTP glue reporting whether a user has a Tuya account linked.
@@ -41,8 +38,8 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		apihttp.WriteProblem(w, http.StatusForbidden, map[string]any{"detail": "forbidden"})
 		return
 	}
-	_, err = h.connector.Account(r.Context(), userID)
-	if errors.Is(err, tuya.ErrAccountNotLinked) {
+	_, err = h.connector.Get(r.Context(), userID)
+	if errors.Is(err, appaccount.ErrNotLinked) {
 		apihttp.WriteJSON(w, http.StatusOK, struct {
 			Connected bool `json:"connected"`
 		}{false})

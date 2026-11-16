@@ -8,9 +8,9 @@ import (
 	"errors"
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
-	"go.naturallyfunny.dev/postera"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
+	"go.trueardian.com/postera"
 )
 
 // Handler is the HTTP glue for prospective memory.

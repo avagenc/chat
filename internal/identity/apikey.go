@@ -4,7 +4,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
+	apihttp "go.trueardian.com/api/http"
 )
 
 type APIKeyAuthenticator struct {

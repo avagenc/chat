@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
+	apihttp "go.trueardian.com/api/http"
 )
 
 // Handler is the HTTP glue for semantic memory: it calls the Service and

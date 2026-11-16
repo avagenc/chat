@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/avagenc/chat/internal/link"
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
-	spotifysdk "go.naturallyfunny.dev/spotify"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
+	spotifysdk "go.trueardian.com/spotify"
 	"golang.org/x/oauth2"
 )
 

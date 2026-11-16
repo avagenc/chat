@@ -353,13 +353,13 @@ runs vertically, through the vanity namespaces in
   └──────────────────────────────┬───────────────────────────────────────────┘
                                  │ imports
   ┌── layer 2 ──────────────────▼────────────────────────────────────────────┐
-  │  go.naturallyfunny.dev/agentkit        <integration>/adk — the binding    │
+  │  go.trueardian.com/agentkit           <integration>/adk — the binding    │
   │  tuya/adk.Tools(c) · zep/adk.NewSessionService(c) · postera/adk.Tools(p)  │
   │  knows: both sides.  owns: nothing but the translation.                  │
   └──────────────────────────────┬───────────────────────────────────────────┘
                                  │ imports
   ┌── layer 1 ──────────────────▼────────────────────────────────────────────┐
-  │  go.naturallyfunny.dev/{tuya,gworkspace,spotify,postera}                  │
+  │  go.trueardian.com/{tuya,gworkspace,spotify,postera}                     │
   │  plain Go clients for external apps, plus their storage adapters          │
   │  (tuya/firestore, postera/postgres, …).                                   │
   │  knows: one vendor API.  has zero agent-framework dependencies.          │
@@ -414,7 +414,7 @@ and a `model` role — one human, one assistant. A room has four assistants who 
 told apart by each other, on every turn, from a transcript none of them fully wrote.
 
 Nothing off the shelf does that, so the Zep session backend was written from scratch for
-it — [`agentkit/zep/adk`](https://pkg.go.dev/go.naturallyfunny.dev/agentkit/zep/adk),
+it — [`agentkit/zep/adk`](https://pkg.go.dev/go.trueardian.com/agentkit/zep/adk),
 implementing ADK's own `session.Service` interface so ADK is unaware anything unusual is
 happening. It closes the gap in four moves:
 
@@ -534,7 +534,7 @@ Agent                   go.avagenc.com/{ava,zee,rafal,yori} — LLM + toolset
 Tools                   postera tools (Ava only) · sub-agent tools (Ava only)
    │                    · Tuya · Workspace · Spotify toolsets (agentkit)
    ▼
-Clients                 tuya.Client · gworkspace.Client · spotify.Client
+Clients                 appaccount.Service · gworkspace.Client · spotify.Client
    │                    resolve the caller's stored grant, then call the vendor
    ▼
 External services
@@ -552,9 +552,8 @@ Two properties fall out of this arrangement:
   imports the other. Connecting an account and using an account are different concerns
   with different lifetimes, and the type system says so.
 - **One vendor client per specialist, never shared.** `zee → tuya`, `rafal → gworkspace`,
-  `yori → spotify` — exactly one each, verified by `GOWORK=off go list -deps` on every
-  roster module. Only two things touch all three: this application, because linking owns
-  the grants, and `agentkit`, because it ships a binding for each. A specialist reaching
+  `yori → spotify` — exactly one each in the migrated agent source. Only two things touch
+  all three: this application, because linking owns the grants, and `agentkit`, because it ships a binding for each. A specialist reaching
   for a colleague's client would be a new module requirement, not a code-review note.
 
 ## The agent architecture
@@ -648,7 +647,7 @@ Cognitive science splits long-term memory into *episodic* (what happened), *sema
 agent framework ships the first two and skips the third — which is why agents are
 purely reactive: they exist only between a request and its response.
 
-[`go.naturallyfunny.dev/postera`](https://pkg.go.dev/go.naturallyfunny.dev/postera) is
+[`go.trueardian.com/postera`](https://pkg.go.dev/go.trueardian.com/postera) is
 the third. A *posterum* is a message an agent addresses to a future moment; when the
 moment arrives the message is delivered back to the agent, in the same thread, and it
 acts. In this repo that arrival is `POST /ava/awaken`, and Ava's instruction for that
@@ -916,7 +915,7 @@ go.avagenc.com/{ava,zee,rafal,yori}   product-specific agents: persona, toolset,
        │                              domain instructions. Reusable across Avagenc
        │                              products, meaningless outside Avagenc.
        ▼
-go.naturallyfunny.dev/{postera,agentkit,api,tuya,gworkspace,spotify}
+go.trueardian.com/{postera,agentkit,api,tuya,gworkspace,spotify}
                                       product-agnostic SDKs: no Avagenc concept
                                       appears in them. Independently useful,
                                       independently versioned, publicly documented.
@@ -924,15 +923,13 @@ go.naturallyfunny.dev/{postera,agentkit,api,tuya,gworkspace,spotify}
 google.golang.org/adk · standard library
 ```
 
-The direction is strict and verified: **no `go.naturallyfunny.dev` module requires
-`go.avagenc.com`** — checked across every one of them in this build's dependency graph.
-The generic layer cannot be polluted by product concerns because it cannot even name
-them.
+The SDK releases declare **no `go.avagenc.com` dependency**. This application pins
+each agent and SDK independently in `go.mod`.
 
 Why separate modules rather than one repo with packages:
 
-- **A module boundary is a version boundary.** `postera` is at v0.22.0 and `zee` at
-  v0.6.2 because they change for unrelated reasons. In a single module they would share
+- **A module boundary is a version boundary.** `postera` is at v0.23.0 and `zee` at
+  v0.7.0 because they change for unrelated reasons. In a single module they would share
   a version number and every agent tweak would look like an SDK release.
 - **It forces the generic/specific split to be real.** Wanting to reach from `postera`
   into an Avagenc type is not a code-review conversation; it is a dependency cycle the
@@ -950,21 +947,25 @@ the alternative — one module — makes the boundary advisory, and an advisory 
 between "generic SDK" and "our product's persona" does not survive a deadline.
 
 **What that friction looked like in practice:** the binding layer was reorganized from
-`go.naturallyfunny.dev/adk/<integration>` to `go.naturallyfunny.dev/agentkit/<integration>/adk`,
+the legacy ADK binding module into the `agentkit/<integration>/adk` layout,
 moving the framework name into the leaf so a non-ADK binding can be added without
 renaming anything. Because each agent module versions independently, they migrated one
 at a time rather than in a single flag-day commit, and for a while the old module stayed
 in the graph as an indirect dependency of whichever agent had not yet cut a release.
-`zee v0.6.2` was the last of them; `go.naturallyfunny.dev/adk` is now absent from `go.mod`
-entirely.
+`zee v0.6.2` completed that earlier binding migration; the legacy module is absent
+from this repository's direct requirements.
 
 That migration is also worth reading as a caution about *where* a claim gets verified.
 A `go.work` in the parent directory replaces the agent modules with local working copies,
 so `go list` on a laptop describes the laptop. `zee` had migrated in its working copy long
 before it cut a release, and the released tag this repo pinned still imported the old
-binding — the version Docker actually built. Every dependency claim in this README and in
-`DIAGRAM.md` is checked with `GOWORK=off` for that reason, and the habit outlives the
-particular debt it caught.
+binding — the version Docker actually built. Verify released dependencies with
+`GOWORK=off` so a local working copy cannot conceal an outdated release.
+
+**Domain migration:** this application pins `ava v0.8.0`, `rafal v0.2.0`,
+`yori v0.4.0`, and `zee v0.7.0`. Those agent releases and the direct SDK requirements
+use `go.trueardian.com`. Run standalone build and dependency checks with `GOWORK=off`
+to resolve the versions in `go.mod`, as Docker and CI do.
 
 ## Infrastructure
 
@@ -1218,7 +1219,7 @@ constraint the runtime properties dominate the ecosystem properties:
 
 **Trade-off, stated plainly:** the Python ecosystem is far larger, and choosing Go means
 writing the integrations nobody has written yet. That cost is visible and owned — it is
-exactly what `go.naturallyfunny.dev/agentkit` and the vendor clients *are*. In exchange,
+exactly what `go.trueardian.com/agentkit` and the vendor clients *are*. In exchange,
 the integrations are typed, tested, versioned, and reusable outside this product, instead
 of being someone else's plugin whose upgrade schedule we do not control.
 
@@ -1595,4 +1596,4 @@ In this order, and it is short:
 This repository ships no `LICENSE` file. It is first-party Avagenc application code,
 not a library offered for reuse, so default copyright applies: all rights reserved. The
 generic building blocks are the ones that *are* published, under their own licenses, at
-[`go.naturallyfunny.dev`](https://pkg.go.dev/go.naturallyfunny.dev/postera).
+[`go.trueardian.com`](https://pkg.go.dev/go.trueardian.com/postera).

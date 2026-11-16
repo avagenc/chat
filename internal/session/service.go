@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 
-	"go.naturallyfunny.dev/api/user"
+	"go.trueardian.com/api/user"
 )
 
 // Service is the episodic-memory service. It enforces ownership before

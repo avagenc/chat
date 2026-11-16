@@ -3,8 +3,8 @@ package wallet
 import (
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
 )
 
 // microsPerRupiah converts wallet micro-rupiah to display rupiah.

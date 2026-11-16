@@ -9,9 +9,9 @@ import (
 
 	"github.com/avagenc/chat/internal/agent"
 	"go.avagenc.com/ava"
-	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
-	apitime "go.naturallyfunny.dev/api/time"
-	apiuser "go.naturallyfunny.dev/api/user"
+	adkzep "go.trueardian.com/agentkit/zep/adk"
+	apitime "go.trueardian.com/api/time"
+	apiuser "go.trueardian.com/api/user"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/genai"

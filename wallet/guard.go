@@ -3,8 +3,8 @@ package wallet
 import (
 	"net/http"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
 )
 
 // Guard gates agent routes on wallet balance. Post-paid model: starting a run

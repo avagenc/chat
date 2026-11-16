@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
 )
 
 // Handler is the HTTP glue for episodic memory: it extracts the session ID

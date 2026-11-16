@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/avagenc/chat/internal/link"
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
-	gworkspacesdk "go.naturallyfunny.dev/gworkspace"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
+	gworkspacesdk "go.trueardian.com/gworkspace"
 	"golang.org/x/oauth2"
 )
 

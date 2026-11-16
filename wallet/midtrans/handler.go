@@ -29,8 +29,8 @@ import (
 	"strings"
 
 	"github.com/avagenc/chat/wallet"
-	apihttp "go.naturallyfunny.dev/api/http"
-	apiuser "go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	apiuser "go.trueardian.com/api/user"
 )
 
 // Handler is the HTTP glue for topping up a wallet through Midtrans Snap.

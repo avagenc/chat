@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 
-	"go.naturallyfunny.dev/api/user"
+	"go.trueardian.com/api/user"
 )
 
 // Service is the semantic-memory service. Operations scope to the user ID

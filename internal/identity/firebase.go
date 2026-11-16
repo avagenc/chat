@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"firebase.google.com/go/v4/auth"
-	apihttp "go.naturallyfunny.dev/api/http"
-	"go.naturallyfunny.dev/api/user"
+	apihttp "go.trueardian.com/api/http"
+	"go.trueardian.com/api/user"
 )
 
 type FirebaseAuthenticator struct {

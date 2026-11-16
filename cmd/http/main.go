@@ -37,20 +37,20 @@ import (
 	"go.avagenc.com/rafal"
 	"go.avagenc.com/yori"
 	"go.avagenc.com/zee"
-	adkzep "go.naturallyfunny.dev/agentkit/zep/adk"
-	apihttp "go.naturallyfunny.dev/api/http"
-	apitime "go.naturallyfunny.dev/api/time"
-	apiuser "go.naturallyfunny.dev/api/user"
-	"go.naturallyfunny.dev/gworkspace"
-	gworkspacefirestore "go.naturallyfunny.dev/gworkspace/firestore"
-	"go.naturallyfunny.dev/postera"
-	posteracloudtasks "go.naturallyfunny.dev/postera/cloudtasks"
-	posterapostgres "go.naturallyfunny.dev/postera/postgres"
-	"go.naturallyfunny.dev/spotify"
-	spotifyfirestore "go.naturallyfunny.dev/spotify/firestore"
-	"go.naturallyfunny.dev/tuya"
-	"go.naturallyfunny.dev/tuya/cloud"
-	tuyafirestore "go.naturallyfunny.dev/tuya/firestore"
+	adkzep "go.trueardian.com/agentkit/zep/adk"
+	apihttp "go.trueardian.com/api/http"
+	apitime "go.trueardian.com/api/time"
+	apiuser "go.trueardian.com/api/user"
+	"go.trueardian.com/gworkspace"
+	gworkspacefirestore "go.trueardian.com/gworkspace/firestore"
+	"go.trueardian.com/postera"
+	posteracloudtasks "go.trueardian.com/postera/cloudtasks"
+	posterapostgres "go.trueardian.com/postera/postgres"
+	"go.trueardian.com/spotify"
+	spotifyfirestore "go.trueardian.com/spotify/firestore"
+	"go.trueardian.com/tuya"
+	"go.trueardian.com/tuya/appaccount"
+	tuyafirestore "go.trueardian.com/tuya/firestore"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/adk/model/gemini"
@@ -177,7 +177,7 @@ func main() {
 		log.Fatalf("fatal: init firestore client: %v", err)
 	}
 	defer firestoreClient.Close()
-	tuyaAccountStore := tuyafirestore.NewAccountStore(firestoreClient, tuyafirestore.WithCollection("tuya_accounts"))
+	tuyaAccountStore := tuyafirestore.NewAppAccountStore(firestoreClient, tuyafirestore.WithCollection("tuya_accounts"))
 	tuyaAccessID := os.Getenv("TUYA_ACCESS_ID")
 	if tuyaAccessID == "" {
 		log.Fatal("fatal: TUYA_ACCESS_ID is required")
@@ -190,13 +190,12 @@ func main() {
 	if tuyaBaseURL == "" {
 		log.Fatal("fatal: TUYA_BASE_URL is required")
 	}
-	tuyaCloudClient, err := cloud.New(tuyaAccessID, tuyaAccessSecret, tuyaBaseURL)
+	tuyaClient, err := tuya.New(tuyaAccessID, tuyaAccessSecret, tuyaBaseURL)
 	if err != nil {
-		log.Fatalf("fatal: build tuya cloud client: %v", err)
+		log.Fatalf("fatal: build tuya client: %v", err)
 	}
-	tuyaIoTClient := cloud.NewIoT(tuyaCloudClient)
-	tuyaAppClient := tuya.New(tuyaIoTClient, tuyaAccountStore)
-	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppClient, AdditionalInstruction: specialist.Instruction()})
+	tuyaAppAccountService := appaccount.NewService(tuyaClient, tuyaAccountStore)
+	zeeAgent, err := zee.New(zee.Config{Model: agentModel, TuyaClient: tuyaAppAccountService, AdditionalInstruction: specialist.Instruction()})
 	if err != nil {
 		log.Fatalf("fatal: build zee agent: %v", err)
 	}
@@ -480,7 +479,7 @@ func main() {
 			http.HandlerFunc(spotifyLinkHandler.HandleDisconnect),
 		),
 	)
-	tuyaLinkHandler := tuyalink.NewHandler(tuyaAppClient)
+	tuyaLinkHandler := tuyalink.NewHandler(tuyaAppAccountService)
 	mux.Handle(
 		"GET /tuya/connection",
 		firebaseAuthenticator.Authenticate(

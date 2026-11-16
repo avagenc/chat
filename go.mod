@@ -10,14 +10,14 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/zmb3/spotify/v2 v2.4.3
-	go.avagenc.com/ava v0.7.1
-	go.avagenc.com/yori v0.3.0
-	go.avagenc.com/zee v0.6.2
-	go.naturallyfunny.dev/agentkit v0.2.0
-	go.naturallyfunny.dev/api v1.15.1
-	go.naturallyfunny.dev/postera v0.22.0
-	go.naturallyfunny.dev/spotify v0.9.0
-	go.naturallyfunny.dev/tuya v0.6.0
+	go.avagenc.com/ava v0.8.0
+	go.avagenc.com/yori v0.4.0
+	go.avagenc.com/zee v0.7.0
+	go.trueardian.com/agentkit v0.3.0
+	go.trueardian.com/api v0.16.0
+	go.trueardian.com/postera v0.23.0
+	go.trueardian.com/spotify v0.10.0
+	go.trueardian.com/tuya v0.10.0
 	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.58.0
 )
@@ -66,8 +66,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
-	go.avagenc.com/rafal v0.1.1
-	go.naturallyfunny.dev/gworkspace v0.7.0
+	go.avagenc.com/rafal v0.2.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.43.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect
@@ -78,6 +77,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.trueardian.com/gworkspace v0.8.0
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0
