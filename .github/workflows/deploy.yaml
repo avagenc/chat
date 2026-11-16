@@ -2,13 +2,13 @@ name: Deploy
 
 on:
   push:
-    branches: ["main", "dev"]
+    branches: ["dev"]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    environment: development
 
     env:
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -16,7 +16,7 @@ jobs:
       REPO_NAME: docker
       SERVICE_NAME: chat-http
       IMAGE_NAME: chat-http
-      APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+      APP_ENV: development
 
     steps:
       - name: Validate Deploy Configuration
@@ -49,7 +49,7 @@ jobs:
             OAUTH_STATE_SECRET POSTERA_DB_URL POSTERA_API_KEY WALLET_DB_URL \
             THIRD_PARTY_API_KEY; do
             if [ -z "${!name}" ]; then
-              echo "::error::$name is empty — set it as a secret/variable in the '${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}' GitHub environment"
+              echo "::error::$name is empty — set it as a secret/variable in the 'development' GitHub environment"
               missing=1
             fi
           done

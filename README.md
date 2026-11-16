@@ -1263,10 +1263,9 @@ migration is what proves they were drawn in the right place.
 
 ### Pipeline and separation of environments
 
-Push to `main` or `dev` selects a GitHub Environment, and each points at a **separate GCP
-project**. Prod and dev do not share a project, so Cloud Run services, Artifact Registry,
-Firestore, Cloud Tasks, and service accounts are isolated by construction rather than by
-naming convention. The deploy job validates that every required secret and variable is
+Only pushes to `dev` trigger the deploy workflow, using the `development` GitHub
+Environment. Production is paused; `main` only keeps code in sync with `dev` and does
+not trigger CI. The deploy job validates that every required secret and variable is
 non-empty *before* building — configuration errors fail in CI with a message naming the
 missing key, instead of crash-looping a container at boot. Images are tagged with the
 commit SHA, so a rollback is redeploying a known digest. The runtime image is
